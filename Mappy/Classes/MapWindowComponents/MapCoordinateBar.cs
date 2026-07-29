@@ -23,7 +23,7 @@ public unsafe class MapCoordinateBar
         var scale = AgentMap.Instance()->SelectedMapSizeFactor;
 
         var characterMapPosition = MapUtil.WorldToMap(Service.ClientState.LocalPlayer?.Position ?? Vector3.Zero, offsetX, offsetY, 0, (uint)scale);
-        var characterPosition = $"Character  {characterMapPosition.X:F1}  {characterMapPosition.Y:F1}";
+        var characterPosition = $"角色  {characterMapPosition.X:F1}  {characterMapPosition.Y:F1}";
 
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2.0f * ImGuiHelpers.GlobalScale);
 
@@ -43,7 +43,7 @@ public unsafe class MapCoordinateBar
             cursorPosition /= AgentMap.Instance()->SelectedMapSizeFactorFloat;
 
             var cursorMapPosition = MapUtil.WorldToMap(new Vector3(cursorPosition.X, 0.0f, cursorPosition.Y), offsetX, offsetY, 0, (uint)scale);
-            var cursorPositionString = $"Cursor  {cursorMapPosition.X:F1}  {cursorMapPosition.Y:F1}";
+            var cursorPositionString = $"游標  {cursorMapPosition.X:F1}  {cursorMapPosition.Y:F1}";
             var cursorStringSize = ImGui.CalcTextSize(characterPosition);
             ImGui.SameLine(ImGui.GetContentRegionMax().X * 2.0f / 3.0f - cursorStringSize.X / 2.0f);
             ImGui.TextColored(System.SystemConfig.CoordinateTextColor, cursorPositionString);

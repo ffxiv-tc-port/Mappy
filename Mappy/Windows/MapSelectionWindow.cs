@@ -15,7 +15,7 @@ public class MapSelectionWindow : SelectionWindowBase<DrawableOption>
 
     protected override float SelectionHeight => 75.0f * ImGuiHelpers.GlobalScale;
 
-    public MapSelectionWindow() : base(new Vector2(500.0f, 800.0f), alternativeName: "Map Selection Window")
+    public MapSelectionWindow() : base(new Vector2(500.0f, 800.0f), alternativeName: "地圖選擇")
     {
         var maps = Service.DataManager.GetExcelSheet<Map>()
             .Where(map => map is { PlaceName.RowId: not 0, TerritoryType.ValueNullable.LoadingImage.RowId: not 0, })

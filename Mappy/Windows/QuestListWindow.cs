@@ -22,9 +22,9 @@ public class QuestListWindow : Window
         new UnacceptedQuestsTabItem(),
     ]);
 
-    public QuestListWindow() : base("Mappy Quest List Window", new Vector2(300.0f, 500.0f))
+    public QuestListWindow() : base("Mappy－任務清單", new Vector2(300.0f, 500.0f))
     {
-        AdditionalInfoTooltip = "Shows Quests for the zone you are currently in";
+        AdditionalInfoTooltip = "顯示目前所在地區的任務";
     }
 
     protected override void DrawContents()
@@ -45,7 +45,7 @@ public unsafe class UnacceptedQuestsTabItem : ITabItem
 {
     private const float ElementHeight = 48.0f;
 
-    public string Name => "Unaccepted Quests";
+    public string Name => "尚未接受";
 
     public bool Disabled => false;
 
@@ -70,7 +70,7 @@ public unsafe class UnacceptedQuestsTabItem : ITabItem
                     ImGui.Image(Service.TextureProvider.GetFromGameIcon(marker.IconId).GetWrapOrEmpty().Handle, ImGuiHelpers.ScaledVector2(ElementHeight, ElementHeight));
 
                     ImGui.SameLine();
-                    var text = $"Lv. {questData.ClassJobLevel.First()} {quest.Label}";
+                    var text = $"等級 {questData.ClassJobLevel.First()} {quest.Label}";
 
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + ElementHeight * ImGuiHelpers.GlobalScale / 2.0f - ImGui.CalcTextSize(text).Y / 2.0f);
                     ImGui.Text(text);
@@ -78,7 +78,7 @@ public unsafe class UnacceptedQuestsTabItem : ITabItem
             }
         }
         else {
-            const string text = "No quests available";
+            const string text = "目前沒有可用任務";
             var textSize = ImGui.CalcTextSize(text);
             ImGui.SetCursorPosX(ImGui.GetContentRegionAvail().X / 2.0f - textSize.X / 2.0f);
             ImGui.SetCursorPosY(ImGui.GetContentRegionAvail().Y / 2.0f - textSize.Y / 2.0f);
@@ -91,7 +91,7 @@ public unsafe class AcceptedQuestsTabItem : ITabItem
 {
     private const float ElementHeight = 48.0f;
 
-    public string Name => "Accepted Quests";
+    public string Name => "已接受";
 
     public bool Disabled => false;
 
@@ -123,7 +123,7 @@ public unsafe class AcceptedQuestsTabItem : ITabItem
                     ImGui.Image(Service.TextureProvider.GetFromGameIcon(iconId).GetWrapOrEmpty().Handle, ImGuiHelpers.ScaledVector2(ElementHeight, ElementHeight));
 
                     ImGui.SameLine();
-                    var text = $"Lv. {questData.ClassJobLevel.First()} {quest.Label}";
+                    var text = $"等級 {questData.ClassJobLevel.First()} {quest.Label}";
 
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + ElementHeight * ImGuiHelpers.GlobalScale / 2.0f - ImGui.CalcTextSize(text).Y / 2.0f);
                     ImGui.Text(text);
@@ -131,7 +131,7 @@ public unsafe class AcceptedQuestsTabItem : ITabItem
             }
         }
         else {
-            const string text = "No quests available";
+            const string text = "目前沒有可用任務";
             var textSize = ImGui.CalcTextSize(text);
             ImGui.SetCursorPosX(ImGui.GetContentRegionAvail().X / 2.0f - textSize.X / 2.0f);
             ImGui.SetCursorPosY(ImGui.GetContentRegionAvail().Y / 2.0f - textSize.Y / 2.0f);

@@ -14,9 +14,9 @@ public class FlagHistoryWindow : Window
 {
     private static float FlagElementHeight => 95.0f * ImGuiHelpers.GlobalScale;
 
-    public FlagHistoryWindow() : base("Mappy Flag History Window", new Vector2(400.0f, 400.0f))
+    public FlagHistoryWindow() : base("Mappy－旗標紀錄", new Vector2(400.0f, 400.0f))
     {
-        AdditionalInfoTooltip = "Shows a list of all recently used flags";
+        AdditionalInfoTooltip = "顯示最近使用的所有旗標";
     }
 
     protected override void DrawContents()
@@ -70,7 +70,7 @@ public class FlagHistoryWindow : Window
 
         if (flag.IsFlagSet()) {
             ImGui.Spacing();
-            ImGui.TextColored(KnownColor.ForestGreen.Vector().Lighten(0.40f), "Flag is currently active");
+            ImGui.TextColored(KnownColor.ForestGreen.Vector().Lighten(0.40f), "此旗標目前有效");
         }
     }
 
@@ -79,13 +79,13 @@ public class FlagHistoryWindow : Window
         var buttonSize = ImGuiHelpers.ScaledVector2(100.0f, 24.0f);
 
         ImGui.SetCursorPos(new Vector2(0.0f, ImGui.GetContentRegionMax().Y - buttonSize.Y));
-        if (ImGui.Button("Focus", buttonSize)) {
+        if (ImGui.Button("定位", buttonSize)) {
             flag.Focus();
         }
 
         ImGui.SetCursorPos(ImGui.GetContentRegionMax() - buttonSize);
         using (ImRaii.Disabled(flag.IsFlagSet())) {
-            if (ImGui.Button("Place", buttonSize)) {
+            if (ImGui.Button("放置", buttonSize)) {
                 flag.PlaceFlag();
             }
         }

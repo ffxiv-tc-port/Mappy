@@ -26,7 +26,7 @@ public unsafe class MapToolbar
 
         ImGui.SetCursorPos(new Vector2(5.0f, 5.0f));
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.ArrowUp, "up", "Open Parent Map")) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.ArrowUp, "up", "開啟上一層地圖")) {
             var valueArgs = new AtkValue
             {
                 Type = ValueType.Int, Int = 5,
@@ -38,7 +38,7 @@ public unsafe class MapToolbar
 
         ImGui.SameLine();
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.LayerGroup, "layers", "Show Map Layers")) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.LayerGroup, "layers", "顯示地圖樓層")) {
             ImGui.OpenPopup("Mappy_Show_Layers");
         }
 
@@ -47,7 +47,7 @@ public unsafe class MapToolbar
         ImGui.SameLine();
 
         using (var _ = ImRaii.PushColor(ImGuiCol.Button, ImGui.GetStyle().GetColor(ImGuiCol.ButtonActive), System.SystemConfig.FollowPlayer)) {
-            if (MappyGuiTweaks.IconButton(FontAwesomeIcon.LocationArrow, "follow", "Toggle Follow Player")) {
+            if (MappyGuiTweaks.IconButton(FontAwesomeIcon.LocationArrow, "follow", "切換跟隨玩家")) {
                 System.SystemConfig.FollowPlayer = !System.SystemConfig.FollowPlayer;
 
                 if (System.SystemConfig.FollowPlayer) {
@@ -58,7 +58,7 @@ public unsafe class MapToolbar
 
         ImGui.SameLine();
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.ArrowsToCircle, "centerPlayer", "Center on Player") && Service.ClientState.LocalPlayer is not null) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.ArrowsToCircle, "centerPlayer", "以玩家為中心") && Service.ClientState.LocalPlayer is not null) {
             // Don't center on player if we are already following the player.
             if (!System.SystemConfig.FollowPlayer) {
                 System.IntegrationsController.OpenOccupiedMap();
@@ -68,14 +68,14 @@ public unsafe class MapToolbar
 
         ImGui.SameLine();
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.MapMarked, "centerMap", "Center on Map")) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.MapMarked, "centerMap", "以地圖為中心")) {
             System.SystemConfig.FollowPlayer = false;
             System.MapRenderer.DrawOffset = Vector2.Zero;
         }
 
         ImGui.SameLine();
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.Search, "search", "Search for Map")) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.Search, "search", "搜尋地圖")) {
             System.WindowManager.AddWindow(new MapSelectionWindow
             {
                 SingleSelectionCallback = selection =>
@@ -99,7 +99,7 @@ public unsafe class MapToolbar
         ImGui.SameLine();
         ImGui.SetCursorPosX(ImGui.GetContentRegionMax().X - offset * ImGuiHelpers.GlobalScale - ImGui.GetStyle().ItemSpacing.X);
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.Cog, "settings", "Open Settings")) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.Cog, "settings", "開啟設定")) {
             System.ConfigWindow.UnCollapseOrShow();
             ImGui.SetWindowFocus(System.ConfigWindow.WindowName);
         }
@@ -108,7 +108,7 @@ public unsafe class MapToolbar
 
         ImGui.SameLine();
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.Times, "closeMap", "Close Map"))
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.Times, "closeMap", "關閉地圖"))
         {
             System.MapWindow.Close();
         }
@@ -146,7 +146,7 @@ public unsafe class MapToolbar
                 .ToList();
 
             if (layers.Count is 0) {
-                ImGui.Text("No layers for this map");
+                ImGui.Text("此地圖沒有其他樓層");
             }
 
             foreach (var layer in layers) {

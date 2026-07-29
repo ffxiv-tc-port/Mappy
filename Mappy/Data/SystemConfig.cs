@@ -10,29 +10,29 @@ namespace Mappy.Data;
 
 public enum CenterTarget
 {
-    [Description("Disabled")]
+    [Description("停用")]
     Disabled = 0,
 
-    [Description("Player")]
+    [Description("玩家")]
     Player = 1,
 
-    [Description("Map")]
+    [Description("地圖")]
     Map = 2,
 }
 
 [Flags]
 public enum FadeMode
 {
-    [Description("Always")]
+    [Description("永遠")]
     Always = 1 << 0,
 
-    [Description("When Moving")]
+    [Description("移動時")]
     WhenMoving = 1 << 2,
 
-    [Description("When Focused")]
+    [Description("取得焦點時")]
     WhenFocused = 1 << 3,
 
-    [Description("When Unfocused")]
+    [Description("失去焦點時")]
     WhenUnFocused = 1 << 4,
 }
 

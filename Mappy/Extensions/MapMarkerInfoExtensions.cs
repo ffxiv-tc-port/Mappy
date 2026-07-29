@@ -142,12 +142,12 @@ public static class MapMarkerInfoExtensions
         var map = Service.DataManager.GetExcelSheet<Map>().GetRow(marker.DataKey);
         var mapPlaceName = map.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
 
-        return $"Open Map {mapPlaceName}";
+        return $"開啟地圖：{mapPlaceName}";
     }
 
     private static string GetInstanceLinkTooltip(ref MapMarkerInfo marker)
     {
-        return $"Instance Link {marker.DataKey}";
+        return $"副本連結 {marker.DataKey}";
     }
 
     private static string GetAetheryteTooltip(ref MapMarkerInfo marker)
@@ -155,13 +155,13 @@ public static class MapMarkerInfoExtensions
         if (marker.DataKey is 0) return string.Empty;
 
         var aetheryteTeleportCost = GetAetheryteTeleportGilCost(marker.DataKey);
-        if (aetheryteTeleportCost is null) return "Not attuned to aetheryte";
+        if (aetheryteTeleportCost is null) return "尚未交感此乙太之光";
 
         var aetheryte = Service.DataManager.GetExcelSheet<Aetheryte>().GetRow(marker.DataKey);
         var aetherytePlaceName = aetheryte.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
         var aetheryteCost = GetAetheryteTeleportCost(marker.DataKey);
 
-        return $"Teleport to {aetherytePlaceName} {aetheryteCost}";
+        return $"傳送至 {aetherytePlaceName} {aetheryteCost}";
     }
 
     private static string GetAethernetTooltip(ref MapMarkerInfo marker)
@@ -174,7 +174,7 @@ public static class MapMarkerInfoExtensions
 
         var aetherytePlaceName = aetheryte.Value.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
 
-        return $"Teleport to {aetherytePlaceName} {GetAetheryteTeleportCost(aetheryte.Value.RowId)}";
+        return $"傳送至 {aetherytePlaceName} {GetAetheryteTeleportCost(aetheryte.Value.RowId)}";
     }
 
     private static Aetheryte? GetAetheryteForAethernet(uint aethernetKey) => System.AetheryteAethernetCache.GetValue(aethernetKey);

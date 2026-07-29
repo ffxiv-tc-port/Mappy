@@ -21,7 +21,7 @@ public unsafe partial class MapRenderer
                 Offset = DrawPosition,
                 Scale = Scale,
                 IconId = 60421,
-                PrimaryText = () => $"Lv. {partyMember.Level} {partyMember.NameString}",
+            PrimaryText = () => $"等級 {partyMember.Level} {partyMember.NameString}",
             });
         }
 
@@ -37,7 +37,7 @@ public unsafe partial class MapRenderer
                 Offset = DrawPosition,
                 Scale = Scale,
                 IconId = 60403,
-                PrimaryText = () => $"Lv. {allianceMember.Level} {allianceMember.NameString}",
+            PrimaryText = () => $"等級 {allianceMember.Level} {allianceMember.NameString}",
             });
         }
     }

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Dalamud.NET.Sdk/13.0.0">
     <PropertyGroup>
         <PackageProjectUrl>https://github.com/cycleapple/Mappy/tree/api13-tw</PackageProjectUrl>
-        <Version>3.1.6.11</Version>
+        <Version>3.1.6.12</Version>
     </PropertyGroup>
     <ItemGroup>
       <None Include=".editorconfig" />

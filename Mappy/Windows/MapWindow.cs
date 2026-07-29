@@ -200,7 +200,7 @@ public class MapWindow : Window
             }
         }
 
-        WindowName = $"Mappy Map Window{subLocationString}###MappyMapWindow";
+        WindowName = $"Mappy 地圖{subLocationString}###MappyMapWindow";
 
         lastMapId = AgentMap.Instance()->SelectedMapId;
         lastAreaPlaceNameId = TerritoryInfo.Instance()->AreaPlaceNameId;
@@ -315,8 +315,8 @@ public class MapWindow : Window
     private static void DrawSpoilerWarning()
     {
         using (ImRaii.PushColor(ImGuiCol.Text, KnownColor.Orange.Vector())) {
-            const string warningLine1 = "Warning, Mappy does not protect you from spoilers and will show everything.";
-            const string warningLine2 = "Do not use Mappy if you are not comfortable with this.";
+            const string warningLine1 = "警告：Mappy 不會避免劇透，並會顯示所有地圖資訊。";
+            const string warningLine2 = "若你不希望看到劇透，請勿使用 Mappy。";
 
             ImGui.SetCursorPos(ImGui.GetContentRegionAvail() / 2.0f - (ImGui.CalcTextSize(warningLine1) * 2.0f) with { X = 0.0f });
             ImGuiHelpers.CenteredText(warningLine1);
@@ -326,14 +326,14 @@ public class MapWindow : Window
         ImGuiHelpers.ScaledDummy(30.0f);
         ImGui.SetCursorPosX(ImGui.GetContentRegionAvail().X / 3.0f);
         using (ImRaii.Disabled(!(ImGui.GetIO().KeyShift && ImGui.GetIO().KeyCtrl))) {
-            if (ImGui.Button("I understand", new Vector2(ImGui.GetContentRegionAvail().X / 2.0f, 23.0f * ImGuiHelpers.GlobalScale))) {
+            if (ImGui.Button("我瞭解了", new Vector2(ImGui.GetContentRegionAvail().X / 2.0f, 23.0f * ImGuiHelpers.GlobalScale))) {
                 System.SystemConfig.AcceptedSpoilerWarning = true;
                 SystemConfig.Save();
             }
 
             using (ImRaii.PushStyle(ImGuiStyleVar.Alpha, 1.0f)) {
                 if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) {
-                    ImGui.SetTooltip("Hold Shift + Control while clicking activate button");
+                    ImGui.SetTooltip("按住 Shift + Ctrl 再點擊按鈕以啟用");
                 }
             }
         }

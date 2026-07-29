@@ -21,9 +21,9 @@ public class FateListWindow : Window
 {
     private const float ElementHeight = 48.0f;
 
-    public FateListWindow() : base("Mappy Fate List Window", new Vector2(300.0f, 400.0f))
+    public FateListWindow() : base("Mappy－危命任務清單", new Vector2(300.0f, 400.0f))
     {
-        AdditionalInfoTooltip = "Shows Fates for the zone you are currently in";
+        AdditionalInfoTooltip = "顯示目前所在地區的危命任務";
     }
 
     protected override unsafe void DrawContents()
@@ -47,7 +47,7 @@ public class FateListWindow : Window
             }
         }
         else {
-            const string text = "No FATE's available";
+            const string text = "目前沒有危命任務";
             var textSize = ImGui.CalcTextSize(text);
             ImGui.SetCursorPosX(ImGui.GetContentRegionAvail().X / 2.0f - textSize.X / 2.0f);
             ImGui.SetCursorPosY(ImGui.GetContentRegionAvail().Y / 2.0f - textSize.Y / 2.0f);
@@ -81,7 +81,7 @@ public class FateListWindow : Window
         if (toolbarChild) {
             using var color = ImRaii.PushColor(ImGuiCol.Button, ImGui.GetStyle().GetColor(ImGuiCol.ButtonActive), System.SystemConfig.SetFlagOnFateClick);
             ImGui.Spacing();
-            if (ImGui.Checkbox("Place Map Flag on Click", ref System.SystemConfig.SetFlagOnFateClick)) {
+            if (ImGui.Checkbox("點擊時放置地圖旗標", ref System.SystemConfig.SetFlagOnFateClick)) {
                 SystemConfig.Save();
             }
         }
@@ -111,20 +111,27 @@ public class FateListWindow : Window
         ImGui.SameLine();
 
         using (ImRaii.Child($"text_child_{fate->FateId}", new Vector2(ImGui.GetContentRegionAvail().X, ElementHeight), false, ImGuiWindowFlags.NoInputs)) {
-            ImGui.TextColored(FateContextExtensions.GetColor(fate, 1.0f), $"Lv. {fate->Level} {fate->Name}");
+            ImGui.TextColored(FateContextExtensions.GetColor(fate, 1.0f), $"等級 {fate->Level} {fate->Name}");
 
             if (fate->State is FateState.Running) {
-                ImGui.TextUnformatted($"Progress: {fate->Progress}%");
+                ImGui.TextUnformatted($"進度：{fate->Progress}%");
 
                 var timeRemaining = FateContextExtensions.GetTimeRemaining(fate);
                 if (timeRemaining != TimeSpan.Zero) {
-                    var timeString = $"{(fate->IsBonus ? "Exp Bonus!\t" : string.Empty)}{SeIconChar.Clock.ToIconString()} {FateContextExtensions.GetTimeRemaining(fate):mm\\:ss}";
+                    var timeString = $"{(fate->IsBonus ? "經驗值加成！\t" : string.Empty)}{SeIconChar.Clock.ToIconString()} {FateContextExtensions.GetTimeRemaining(fate):mm\\:ss}";
                     ImGui.SameLine(ImGui.GetContentRegionMax().X - ImGui.CalcTextSize(timeString).X);
                     ImGui.Text(timeString);
                 }
             }
             else {
-                ImGui.TextUnformatted(fate->State.ToString());
+                ImGui.TextUnformatted(fate->State switch
+                {
+                    FateState.Preparing => "準備中",
+                    FateState.Ending => "即將結束",
+                    FateState.Ended => "已結束",
+                    FateState.Failed => "失敗",
+                    _ => fate->State.ToString(),
+                });
             }
         }
     }

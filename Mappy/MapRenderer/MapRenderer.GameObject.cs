@@ -78,8 +78,8 @@ public partial class MapRenderer
     {
         return obj switch
         {
-            IBattleNpc { Level: > 0 } battleNpc => $"Lv. {battleNpc.Level} {battleNpc.Name}",
-            IPlayerCharacter { Level: > 0 } playerCharacter => $"Lv. {playerCharacter.Level} {playerCharacter.Name}",
+            IBattleNpc { Level: > 0 } battleNpc => $"等級 {battleNpc.Level} {battleNpc.Name}",
+            IPlayerCharacter { Level: > 0 } playerCharacter => $"等級 {playerCharacter.Level} {playerCharacter.Name}",
             _ => obj.ObjectKind switch
             {
                 ObjectKind.GatheringPoint => System.GatheringPointNameCache.GetValue((obj.DataId, obj.Name.ToString())) ?? string.Empty,
