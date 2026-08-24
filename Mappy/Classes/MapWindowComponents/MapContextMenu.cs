@@ -36,9 +36,9 @@ public unsafe class MapContextMenu
 
         ImGuiHelpers.ScaledDummy(5.0f);
 
-        if (ImGui.MenuItem("以玩家為中心", false, Service.ClientState.LocalPlayer is not null) && Service.ClientState.LocalPlayer is not null) {
+        if (ImGui.MenuItem("以玩家為中心", false, Service.ObjectTable.LocalPlayer is not null) && Service.ObjectTable.LocalPlayer is not null) {
             System.IntegrationsController.OpenOccupiedMap();
-            System.MapRenderer.CenterOnGameObject(Service.ClientState.LocalPlayer);
+            System.MapRenderer.CenterOnGameObject(Service.ObjectTable.LocalPlayer);
         }
 
         if (ImGui.MenuItem("以地圖為中心")) {
