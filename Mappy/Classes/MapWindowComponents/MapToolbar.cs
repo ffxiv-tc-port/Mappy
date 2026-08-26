@@ -58,11 +58,11 @@ public unsafe class MapToolbar
 
         ImGui.SameLine();
 
-        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.ArrowsToCircle, "centerPlayer", "以玩家為中心") && Service.ClientState.LocalPlayer is not null) {
+        if (MappyGuiTweaks.IconButton(FontAwesomeIcon.ArrowsToCircle, "centerPlayer", "以玩家為中心") && Service.ObjectTable.LocalPlayer is not null) {
             // Don't center on player if we are already following the player.
             if (!System.SystemConfig.FollowPlayer) {
                 System.IntegrationsController.OpenOccupiedMap();
-                System.MapRenderer.CenterOnGameObject(Service.ClientState.LocalPlayer);
+                System.MapRenderer.CenterOnGameObject(Service.ObjectTable.LocalPlayer);
             }
         }
 

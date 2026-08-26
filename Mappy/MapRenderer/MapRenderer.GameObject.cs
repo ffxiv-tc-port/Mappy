@@ -22,7 +22,7 @@ public partial class MapRenderer
     {
         if (AgentMap.Instance()->SelectedMapId != AgentMap.Instance()->CurrentMapId) return;
 
-        if (Service.ClientState is not { LocalPlayer: { } player }) return;
+        if (Service.ObjectTable is not { LocalPlayer: { } player }) return;
 
         if (System.SystemConfig.ShowRadar) {
             if ((Service.Condition.IsBoundByDuty() && System.SystemConfig.ShowRadarInDuties) || !Service.Condition.IsBoundByDuty()) {
