@@ -102,11 +102,22 @@ public static class MapMarkerInfoExtensions
     {
         if (marker.DataKey is 0) return;
 
+        // 這一列其實是乙太網分店時，Telepo 傳送不過去（它只認母乙太之光），交給 Lifestream 走乙太網。
+        if (Service.DataManager.GetExcelSheet<Aetheryte>().GetRowOrDefault(marker.DataKey) is { IsAetheryte: false }) {
+            if (System.LifestreamIpc.TryHandleAethernetShardClick(marker.DataKey)) return;
+        }
+
         System.Teleporter.Teleport(marker.DataKey);
     }
 
     private static void OnAethernetClicked(ref MapMarkerInfo marker)
     {
+        if (marker.DataKey is 0) return;
+
+        // 優先讓 Lifestream 走真正的乙太網移動：它認得分店、住宅區與自訂乙太網，
+        // 內建的 Telepo 只會傳到母乙太之光。Lifestream 沒裝／不在水晶旁／呼叫失敗時退回原行為。
+        if (System.LifestreamIpc.TryHandleAethernetClick(marker.DataKey)) return;
+
         var aetheryte = GetAetheryteForAethernet(marker.DataKey);
         if (aetheryte is null) return;
         if (aetheryte.Value.RowId is 0) return;

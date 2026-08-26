@@ -26,6 +26,7 @@ public static class System
     public static FlagController FlagController { get; set; }
     public static CommandManager CommandManager { get; set; }
     public static Teleporter Teleporter { get; set; }
+    public static LifestreamIpc LifestreamIpc { get; set; }
 
     public static List<ModuleBase> Modules { get; set; } =
     [

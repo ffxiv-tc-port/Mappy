@@ -29,6 +29,7 @@ public sealed class MappyPlugin : IDalamudPlugin
         System.FlagConfig = FlagConfig.Load();
 
         System.Teleporter = new Teleporter(Service.PluginInterface);
+        System.LifestreamIpc = new LifestreamIpc();
 
         System.CommandManager = new CommandManager(Service.PluginInterface, "mappy");
 
