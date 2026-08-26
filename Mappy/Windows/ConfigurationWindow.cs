@@ -171,6 +171,16 @@ public class StyleOptionsTab : ITabItem
             configChanged |= ImGui.Checkbox("隨遊戲介面隱藏", ref System.SystemConfig.HideWithGameGui);
             configChanged |= ImGui.Checkbox("切換區域時隱藏", ref System.SystemConfig.HideBetweenAreas);
             configChanged |= ImGui.Checkbox("戰鬥中隱藏", ref System.SystemConfig.HideInCombat);
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
+            if (ImGuiTweaks.Checkbox("PvP 中允許開啟地圖", ref System.SystemConfig.AllowInPvP,
+                    "原版行為是在 PvP 區域（紛爭前線、機工樂園、水晶衝突等）強制關閉 Mappy，改用遊戲原生地圖。\n" +
+                    "開啟本選項後 Mappy 在 PvP 中照常運作。\n" +
+                    "副本／任務中本來就沒有限制，不受此選項影響。")) {
+                configChanged = true;
+                System.IntegrationsController.ApplyPvPPolicy();
+            }
         }
 
         ImGuiTweaks.Header("視窗標題");

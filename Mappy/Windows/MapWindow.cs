@@ -31,6 +31,7 @@ public class MapWindow : Window
     private uint lastMapId;
     private uint lastAreaPlaceNameId;
     private uint lastSubAreaPlaceNameId;
+    private uint lastMissingMapId;
 
     private readonly MapToolbar mapToolbar = new();
     private readonly MapCoordinateBar mapCoordinateBar = new();
@@ -52,7 +53,8 @@ public class MapWindow : Window
             IsOpen = true;
         }
 
-        if (Service.ClientState is { IsLoggedIn: false } or { IsPvP: true }) IsOpen = false;
+        if (Service.ClientState is { IsLoggedIn: false }) IsOpen = false;
+        if (IntegrationsController.IsPvPBlocked()) IsOpen = false;
     }
 
     public override void OnOpen()
@@ -175,28 +177,40 @@ public class MapWindow : Window
 
         if (!locationChanged) return;
         var subLocationString = string.Empty;
-        var mapData = Service.DataManager.GetExcelSheet<Map>().GetRow(AgentMap.Instance()->SelectedMapId);
 
-        if (System.SystemConfig.ShowRegionLabel) {
-            var mapRegionName = mapData.PlaceNameRegion.Value.Name.ExtractText();
-            subLocationString += $" - {mapRegionName}";
+        // 台服的 Map 表不保證涵蓋所有區域（PvP／新內容尤其），GetRow 對缺列會擲例外。
+        // 這裡改成查不到就不加標題文字，並印一行 Information 級診斷。
+        var selectedMapId = AgentMap.Instance()->SelectedMapId;
+        var mapData = Service.DataManager.GetExcelSheet<Map>().GetRowOrDefault(selectedMapId);
+
+        if (mapData is null) {
+            if (lastMissingMapId != selectedMapId) {
+                lastMissingMapId = selectedMapId;
+                Service.Log.Information($"[Mappy] Map 表中找不到 MapId {selectedMapId}，本次不套用地圖標題文字。");
+            }
         }
+        else {
+            if (System.SystemConfig.ShowRegionLabel) {
+                var mapRegionName = mapData.Value.PlaceNameRegion.ValueNullable?.Name.ExtractText() ?? string.Empty;
+                if (mapRegionName != string.Empty) subLocationString += $" - {mapRegionName}";
+            }
 
-        if (System.SystemConfig.ShowMapLabel) {
-            var mapName = mapData.PlaceName.Value.Name.ExtractText();
-            subLocationString += $" - {mapName}";
+            if (System.SystemConfig.ShowMapLabel) {
+                var mapName = mapData.Value.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
+                if (mapName != string.Empty) subLocationString += $" - {mapName}";
+            }
         }
 
         // Don't show specific locations if we aren't there.
         if (AgentMap.Instance()->SelectedMapId == AgentMap.Instance()->CurrentMapId) {
             if (TerritoryInfo.Instance()->AreaPlaceNameId is not 0 && System.SystemConfig.ShowAreaLabel) {
-                var areaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRow(TerritoryInfo.Instance()->AreaPlaceNameId);
-                subLocationString += $" - {areaLabel.Name}";
+                var areaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRowOrDefault(TerritoryInfo.Instance()->AreaPlaceNameId);
+                if (areaLabel is not null) subLocationString += $" - {areaLabel.Value.Name}";
             }
 
             if (TerritoryInfo.Instance()->SubAreaPlaceNameId is not 0 && System.SystemConfig.ShowSubAreaLabel) {
-                var subAreaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRow(TerritoryInfo.Instance()->SubAreaPlaceNameId);
-                subLocationString += $" - {subAreaLabel.Name}";
+                var subAreaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRowOrDefault(TerritoryInfo.Instance()->SubAreaPlaceNameId);
+                if (subAreaLabel is not null) subLocationString += $" - {subAreaLabel.Value.Name}";
             }
         }
 

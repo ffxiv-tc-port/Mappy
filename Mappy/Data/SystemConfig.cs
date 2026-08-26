@@ -45,6 +45,11 @@ public class SystemConfig : CharacterConfiguration
     public bool HideWithGameGui = true;
     public bool HideBetweenAreas = false;
     public bool HideInCombat = false;
+
+    // 台服追加：上游在 PvP 區域會強制關閉 Mappy 並讓出給遊戲原生地圖。
+    // 預設改為允許，關閉此選項即回到上游行為。
+    public bool AllowInPvP = true;
+
     public bool KeepOpen = false;
     public bool FollowOnOpen = false;
     public bool FollowPlayer = true;

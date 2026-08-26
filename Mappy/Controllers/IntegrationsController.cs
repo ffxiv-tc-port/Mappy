@@ -26,13 +26,13 @@ public unsafe class IntegrationsController : IDisposable
         showMapHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.ShowMap>(AgentMap.MemberFunctionPointers.ShowMap, OnShowHook);
         openMapHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.OpenMap>(AgentMap.MemberFunctionPointers.OpenMap, OnOpenMapHook);
 
-        if (Service.ClientState is { IsPvP: false })
+        if (!IsPvPBlocked())
         {
             EnableIntegrations();
         }
 
-        Service.ClientState.EnterPvP += DisableIntegrations;
-        Service.ClientState.LeavePvP += EnableIntegrations;
+        Service.ClientState.EnterPvP += ApplyPvPPolicy;
+        Service.ClientState.LeavePvP += ApplyPvPPolicy;
     }
 
     public void Dispose()
@@ -42,8 +42,34 @@ public unsafe class IntegrationsController : IDisposable
         showMapHook?.Dispose();
         openMapHook?.Dispose();
 
-        Service.ClientState.EnterPvP -= DisableIntegrations;
-        Service.ClientState.LeavePvP -= EnableIntegrations;
+        Service.ClientState.EnterPvP -= ApplyPvPPolicy;
+        Service.ClientState.LeavePvP -= ApplyPvPPolicy;
+    }
+
+    /// <summary>
+    /// PvP 區域是否要把地圖讓給遊戲原生介面（＝上游原本的行為）。
+    /// 設定「PvP 中允許開啟地圖」開啟時永遠回傳 false。
+    /// </summary>
+    public static bool IsPvPBlocked()
+        => Service.ClientState is { IsPvP: true } && !System.SystemConfig.AllowInPvP;
+
+    /// <summary>
+    /// 依目前所在區域與設定，決定要不要接管地圖。切換 PvP 進出、或使用者改設定時呼叫。
+    /// </summary>
+    public void ApplyPvPPolicy()
+    {
+        if (IsPvPBlocked())
+        {
+            DisableIntegrations();
+            return;
+        }
+
+        if (Service.ClientState is { IsPvP: true })
+        {
+            Service.Log.Information("[Mappy] 位於 PvP 區域，依設定「PvP 中允許開啟地圖」繼續接管地圖。");
+        }
+
+        EnableIntegrations();
     }
 
     private void EnableIntegrations()
@@ -273,7 +299,8 @@ public unsafe class IntegrationsController : IDisposable
 
     public static bool ShouldShowMap()
     {
-        if (Service.ClientState is { IsLoggedIn: false } or { IsPvP: true }) return false;
+        if (Service.ClientState is { IsLoggedIn: false }) return false;
+        if (IsPvPBlocked()) return false;
         if (System.SystemConfig.HideInCombat && Service.Condition.IsInCombat()) return false;
         if (System.SystemConfig.HideBetweenAreas && Service.Condition.IsBetweenAreas()) return false;
         if (System.SystemConfig.HideWithGameGui && !IsNamePlateAddonVisible()) return false;

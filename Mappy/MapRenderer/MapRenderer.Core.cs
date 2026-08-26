@@ -26,6 +26,7 @@ public unsafe partial class MapRenderer : IDisposable
 
     private IDalamudTextureWrap? blendedTexture;
     private string blendedPath = string.Empty;
+    private uint lastMissingTextureMapId;
 
     public MapRenderer()
     {
@@ -67,6 +68,20 @@ public unsafe partial class MapRenderer : IDisposable
 
     private void DrawBackgroundTexture()
     {
+        var agent = AgentMap.Instance();
+        if (agent is null) return;
+
+        // 開放 PvP 之後會畫到上游沒假設過的區域，這些地圖不保證有材質路徑。
+        // 取不到就不畫，並印一行 Information 級診斷（每張地圖只印一次）。
+        if (agent->SelectedMapPath.Length is 0 && agent->SelectedMapBgPath.Length is 0) {
+            if (lastMissingTextureMapId != agent->SelectedMapId) {
+                lastMissingTextureMapId = agent->SelectedMapId;
+                Service.Log.Information($"[Mappy] MapId {agent->SelectedMapId} 沒有可用的地圖材質路徑，略過底圖繪製。");
+            }
+
+            return;
+        }
+
         if (AgentMap.Instance()->SelectedMapBgPath.Length is 0) {
             var texture = Service.TextureProvider.GetFromGame($"{AgentMap.Instance()->SelectedMapPath.ToString()}.tex").GetWrapOrEmpty();
 

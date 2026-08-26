@@ -14,7 +14,7 @@ public unsafe class FlagController : IDisposable
     {
         setFlagMapMarkerHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.SetFlagMapMarker>(AgentMap.MemberFunctionPointers.SetFlagMapMarker, OnSetFlagMapMarker);
 
-        if (Service.ClientState is { IsPvP: false }) {
+        if (!IntegrationsController.IsPvPBlocked()) {
             EnableIntegrations();
         }
     }
