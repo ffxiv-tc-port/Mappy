@@ -23,6 +23,7 @@ public class ConfigurationWindow : Window
         new MapFunctionsTab(),
         new StyleOptionsTab(),
         new PlayerOptionsTab(),
+        new IpcMarkerTab(),
     ]);
 
     public ConfigurationWindow() : base("Mappy－設定", new Vector2(500.0f, 580.0f))
@@ -321,6 +322,48 @@ public class PlayerOptionsTab : ITabItem
 
         if (configChanged) {
             SystemConfig.Save();
+        }
+    }
+}
+
+public class IpcMarkerTab : ITabItem
+{
+    public string Name => "外掛標記";
+
+    public bool Disabled => false;
+
+    public void Draw()
+    {
+        ImGuiTweaks.Header("其他外掛放上來的標記");
+
+        using (ImRaii.PushIndent()) {
+            var sources = System.MarkerIpcController.GetSourceSummary();
+
+            if (sources.Count is 0) {
+                using var textColor = ImRaii.PushColor(ImGuiCol.Text, KnownColor.Gray.Vector());
+
+                ImGui.TextWrapped("目前沒有任何外掛把標記放到 Mappy 上。\n" +
+                                  "支援這項功能的外掛載入之後，來源會自動出現在這裡。");
+                return;
+            }
+
+            var configChanged = false;
+
+            foreach (var (source, count) in sources.OrderBy(entry => entry.Source)) {
+                var enabled = !System.SystemConfig.IpcSourceEnabled.TryGetValue(source, out var value) || value;
+
+                if (ImGui.Checkbox($"{source}##ipcSource{source}", ref enabled)) {
+                    System.SystemConfig.IpcSourceEnabled[source] = enabled;
+                    configChanged = true;
+                }
+
+                ImGui.SameLine();
+                ImGuiTweaks.TextColoredUnformatted(KnownColor.Gray.Vector(), $"（{count} 個標記）");
+            }
+
+            if (configChanged) {
+                SystemConfig.Save();
+            }
         }
     }
 }

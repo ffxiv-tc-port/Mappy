@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Numerics;
@@ -114,6 +115,10 @@ public class SystemConfig : CharacterConfiguration
     public Vector4 OtherPlayerMarkerColor = KnownColor.Gray.Vector() with { W = 0.25f };
     public Vector4 SocialMarkerOutlineColor = KnownColor.Black.Vector() with { W = 0.60f };
     public float SocialMarkerRadius = 7.0f;
+
+    // 台服追加：其他外掛透過 IPC 放上來的標記，逐「來源」的開關。
+    // 來源第一次出現時會自動以 true 加進來。
+    public Dictionary<string, bool> IpcSourceEnabled = [];
 
     // Do not persist this setting
     [JsonIgnore]

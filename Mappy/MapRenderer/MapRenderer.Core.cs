@@ -158,5 +158,6 @@ public unsafe partial class MapRenderer : IDisposable
         DrawPlayer();
         DrawStaticTextMarkers();
         DrawFlag();
+        DrawIpcMarkers();
     }
 }
