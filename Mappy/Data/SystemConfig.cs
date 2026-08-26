@@ -103,6 +103,15 @@ public class SystemConfig : CharacterConfiguration
     public bool ScaleTextWithZoom = true;
     public float AutoZoomScaleFactor = 0.33f;
 
+    // 台服追加：在其他玩家的圖示底下墊一個色點，用來一眼分出好友／同部隊／一般玩家。
+    // 小隊與團隊成員由 DrawGroupMembers 另外處理，不在這裡上色。
+    public bool ShowSocialMarkers = true;
+    public Vector4 FriendMarkerColor = KnownColor.Gold.Vector() with { W = 0.85f };
+    public Vector4 FreeCompanyMarkerColor = KnownColor.MediumSeaGreen.Vector() with { W = 0.85f };
+    public Vector4 OtherPlayerMarkerColor = KnownColor.Gray.Vector() with { W = 0.25f };
+    public Vector4 SocialMarkerOutlineColor = KnownColor.Black.Vector() with { W = 0.60f };
+    public float SocialMarkerRadius = 7.0f;
+
     // Do not persist this setting
     [JsonIgnore]
     public bool DebugMode = false;

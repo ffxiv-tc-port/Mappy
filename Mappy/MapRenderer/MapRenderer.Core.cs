@@ -148,6 +148,7 @@ public unsafe partial class MapRenderer : IDisposable
     {
         DrawStaticMapMarkers();
         DrawDynamicMarkers();
+        DrawSocialMarkers();
         DrawGameObjects();
         DrawGroupMembers();
         DrawTemporaryMarkers();

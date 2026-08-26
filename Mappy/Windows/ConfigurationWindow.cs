@@ -292,6 +292,27 @@ public class PlayerOptionsTab : ITabItem
             configChanged |= ImGui.DragFloat("玩家圖示大小", ref System.SystemConfig.PlayerIconScale, 0.05f);
         }
 
+        ImGuiTweaks.Header("好友與部隊標示");
+        using (ImRaii.PushIndent()) {
+            configChanged |= ImGuiTweaks.Checkbox("標示好友與同部隊成員", ref System.SystemConfig.ShowSocialMarkers,
+                "在其他玩家的圖示底下墊一個色點。\n" +
+                "小隊與團隊成員不受此選項影響，它們一直都是用另外的圖示顯示。");
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("好友顏色", ref System.SystemConfig.FriendMarkerColor,
+                KnownColor.Gold.Vector() with { W = 0.85f });
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("同部隊顏色", ref System.SystemConfig.FreeCompanyMarkerColor,
+                KnownColor.MediumSeaGreen.Vector() with { W = 0.85f });
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("一般玩家顏色", ref System.SystemConfig.OtherPlayerMarkerColor,
+                KnownColor.Gray.Vector() with { W = 0.25f });
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("色點外框顏色", ref System.SystemConfig.SocialMarkerOutlineColor,
+                KnownColor.Black.Vector() with { W = 0.60f });
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+            configChanged |= ImGui.DragFloat("色點大小", ref System.SystemConfig.SocialMarkerRadius, 0.1f, 2.0f, 30.0f);
+        }
+
         if (configChanged) {
             SystemConfig.Save();
         }
