@@ -119,7 +119,14 @@ public unsafe class MapToolbar
         using var contextMenu = ImRaii.Popup("Mappy_Show_Layers");
         if (!contextMenu) return;
 
-        var currentMap = Service.DataManager.GetExcelSheet<Map>().GetRow(AgentMap.Instance()->SelectedMapId);
+        // 台服的 Map 表不保證涵蓋所有區域，GetRow 對缺列會擲例外。
+        var selectedMapId = AgentMap.Instance()->SelectedMapId;
+        if (Service.DataManager.GetExcelSheet<Map>().GetRowOrDefault(selectedMapId) is not { } currentMap) {
+            Service.Log.Information($"[Mappy] Map 表中找不到 MapId {selectedMapId}，無法列出樓層。");
+            ImGui.Text("此地圖沒有其他樓層");
+            return;
+        }
+
         if (currentMap.RowId is 0) return;
 
         // If this is a region map
@@ -150,7 +157,7 @@ public unsafe class MapToolbar
             }
 
             foreach (var layer in layers) {
-                if (ImGui.MenuItem(layer.PlaceNameSub.Value.Name.ExtractText(), "", AgentMap.Instance()->SelectedMapId == layer.RowId)) {
+                if (ImGui.MenuItem(layer.PlaceNameSub.ValueNullable?.Name.ExtractText() ?? $"#{layer.RowId}", "", AgentMap.Instance()->SelectedMapId == layer.RowId)) {
                     System.IntegrationsController.OpenMap(layer.RowId);
                     System.SystemConfig.FollowPlayer = false;
                     System.MapRenderer.DrawOffset = Vector2.Zero;
