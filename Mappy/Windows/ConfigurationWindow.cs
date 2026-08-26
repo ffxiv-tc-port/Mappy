@@ -98,6 +98,12 @@ public class MapFunctionsTab : ITabItem
 
             ImGuiHelpers.ScaledDummy(5.0f);
 
+            configChanged |= ImGuiTweaks.Checkbox("顯示小地圖標記", ref System.SystemConfig.ShowMiniMapMarkers,
+                "遊戲另外有一份只給小地圖用的標記，其他外掛（例如 EurekaHelper）也會往裡面寫。\n" +
+                "開啟後這些標記也會畫到大地圖上，與大地圖既有標記重覆的會自動去除。");
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
             configChanged |= ImGui.Checkbox("偵錯模式", ref System.SystemConfig.DebugMode);
         }
 

@@ -105,6 +105,9 @@ public class SystemConfig : CharacterConfiguration
 
     // 台服追加：在其他玩家的圖示底下墊一個色點，用來一眼分出好友／同部隊／一般玩家。
     // 小隊與團隊成員由 DrawGroupMembers 另外處理，不在這裡上色。
+    // 台服追加：補畫遊戲寫給小地圖用的那份標記（其他外掛也會往裡面塞）。
+    public bool ShowMiniMapMarkers = true;
+
     public bool ShowSocialMarkers = true;
     public Vector4 FriendMarkerColor = KnownColor.Gold.Vector() with { W = 0.85f };
     public Vector4 FreeCompanyMarkerColor = KnownColor.MediumSeaGreen.Vector() with { W = 0.85f };
