@@ -27,6 +27,7 @@ public static class System
     public static CommandManager CommandManager { get; set; }
     public static Teleporter Teleporter { get; set; }
     public static LifestreamIpc LifestreamIpc { get; set; }
+    public static VnavmeshIpc VnavmeshIpc { get; set; }
     public static MarkerIpcController MarkerIpcController { get; set; }
 
     public static List<ModuleBase> Modules { get; set; } =

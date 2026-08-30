@@ -30,6 +30,7 @@ public sealed class MappyPlugin : IDalamudPlugin
 
         System.Teleporter = new Teleporter(Service.PluginInterface);
         System.LifestreamIpc = new LifestreamIpc();
+        System.VnavmeshIpc = new VnavmeshIpc();
 
         System.CommandManager = new CommandManager(Service.PluginInterface, "mappy");
 
@@ -80,6 +81,7 @@ public sealed class MappyPlugin : IDalamudPlugin
     {
         System.MapWindow.OnClose();
         System.WindowManager.Dispose();
+        System.VnavmeshIpc.Dispose();
         System.MarkerIpcController.Dispose();
         System.IntegrationsController.Dispose();
         System.AreaMapController.Dispose();

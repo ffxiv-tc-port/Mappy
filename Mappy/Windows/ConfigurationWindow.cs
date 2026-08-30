@@ -105,6 +105,21 @@ public class MapFunctionsTab : ITabItem
 
             ImGuiHelpers.ScaledDummy(5.0f);
 
+            configChanged |= ImGuiTweaks.Checkbox("地圖右鍵「移動到這裡」", ref System.SystemConfig.EnableTravelToHere,
+                "在地圖上按右鍵時多出「移動到這裡」與「停止移動」兩個項目。\n" +
+                "跨區時會自動傳送到最近的乙太之光，再由 vnavmesh 走過去。\n" +
+                "需要 Lifestream 與 vnavmesh 兩個外掛；缺哪個會在選單上直接寫出來。");
+
+            using (ImRaii.Disabled(!System.SystemConfig.EnableTravelToHere)) {
+                using (ImRaii.PushIndent()) {
+                    configChanged |= ImGuiTweaks.Checkbox("移動時使用飛行坐騎", ref System.SystemConfig.TravelUseFlying,
+                        "允許 Lifestream 上坐騎飛過去。\n" +
+                        "不能飛的區域（或風脈泉還沒集滿）會自動改成用走的。");
+                }
+            }
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
             configChanged |= ImGui.Checkbox("偵錯模式", ref System.SystemConfig.DebugMode);
         }
 

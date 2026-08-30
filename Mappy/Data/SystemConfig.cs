@@ -116,6 +116,14 @@ public class SystemConfig : CharacterConfiguration
     public Vector4 SocialMarkerOutlineColor = KnownColor.Black.Vector() with { W = 0.60f };
     public float SocialMarkerRadius = 7.0f;
 
+    // 台服追加：地圖右鍵的「移動到這裡」——把跨區傳送與尋路整段交給 Lifestream。
+    // 🔴 只有使用者親手點右鍵選單時才會動，沒有任何事件驅動的自動接手鏈。
+    public bool EnableTravelToHere = true;
+
+    // 台服追加：「移動到這裡」允許使用飛行坐騎。
+    // ⚠️ 不可飛的區域由 Lifestream 自己退回用走的，這裡不需要（也不該）替它判斷。
+    public bool TravelUseFlying = true;
+
     // 台服追加：其他外掛透過 IPC 放上來的標記，逐「來源」的開關。
     // 來源第一次出現時會自動以 true 加進來。
     public Dictionary<string, bool> IpcSourceEnabled = [];
