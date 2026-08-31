@@ -69,9 +69,20 @@ public unsafe partial class MapRenderer
         }
 
         for (var index = 0; index < count; index++) {
-            ref var marker = ref miniMapMarkers[index].MapMarker;
+            ref var entry = ref miniMapMarkers[index];
+            ref var marker = ref entry.MapMarker;
 
             if (marker.IconId is 0) continue;
+
+            // 乙太之光（DataType 3）與城內乙太網水晶（DataType 4）大地圖那份本來就有，
+            // 而且才是權威：小地圖這份的同一座水晶座標/圖示不必逐位相同，
+            // 下面的去重鍵擋不住，畫出來就是數量不對（2026-08-31 使用者回報，舊薩雷安實機截圖）。
+            // ⚠️ MiniMapMarker.DataType 與 MapMarkerInfo.DataType 同語意家族是合理推論非實機實證；
+            //    推論錯的後果只是「少畫幾個小地圖標記」，不會多畫也不會崩。
+            // 📌 EurekaHelper 這類外掛用 AddMiniMapMarker 寫入的自訂標記 DataType 恆為 0
+            //    （CS 的 AddMiniMapMarker 只填 MapMarker 欄位），不受影響。
+            if (entry.DataType is 3 or 4) continue;
+
             if (!drawnMarkers.Add((marker.X, marker.Y, marker.IconId))) continue;
 
             marker.Draw(DrawPosition, Scale);
