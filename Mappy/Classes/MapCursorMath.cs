@@ -124,7 +124,7 @@ public static unsafe class MapCursorMath
     /// 實機校準用：兩份算法對不上時寫一行 <c>Information</c>。
     /// </summary>
     /// <remarks>
-    /// 📌 用 <c>Information</c> 是刻意的——使用者跑的是 LogLevel 2，<c>Debug</c> 收不到，
+    /// 📌 用 <c>Information</c> 是刻意的——使用者跑的是 LogLevel 1，<c>Debug</c> 收得到但單檔數十萬行會淹沒，
     /// 而這一行正是「請把 log 貼給我」時唯一有價值的證據。
     /// 只有在使用者親手點右鍵選單時才會算，不是每幀。
     /// </remarks>

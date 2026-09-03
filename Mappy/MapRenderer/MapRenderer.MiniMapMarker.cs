@@ -90,7 +90,7 @@ public unsafe partial class MapRenderer
     }
 
     /// <summary>
-    /// 每張地圖只印一次，避免每幀洗版。使用者跑 LogLevel 2，所以一律用 Information。
+    /// 每張地圖只印一次，避免每幀洗版。使用者跑 LogLevel 1，所以一律用 Information。
     /// </summary>
     private void LogMiniMapMarkerDiagnostic(AgentMap* agent, int count, string reason)
     {
