@@ -225,12 +225,17 @@ public static class DrawHelpers
 
         if (isActivatedViaRadius || ImGui.IsItemHovered()) {
             if (markerInfo.PrimaryText?.Invoke() is { Length: > 0 } primaryText) {
+                var textScale = GetTooltipTextScale();
+
+                using var tooltipAlpha = ImRaii.PushStyle(ImGuiStyleVar.Alpha, GetTooltipAlpha());
                 using var tooltip = ImRaii.Tooltip();
 
-                ImGui.Image(Service.TextureProvider.GetFromGameIcon(markerInfo.IconId).GetWrapOrEmpty().Handle, ImGuiHelpers.ScaledVector2(32.0f, 32.0f));
+                ImGui.SetWindowFontScale(textScale);
+
+                ImGui.Image(Service.TextureProvider.GetFromGameIcon(markerInfo.IconId).GetWrapOrEmpty().Handle, ImGuiHelpers.ScaledVector2(32.0f, 32.0f) * textScale);
 
                 ImGui.SameLine();
-                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 7.5f * ImGuiHelpers.GlobalScale);
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 7.5f * ImGuiHelpers.GlobalScale * textScale);
                 var cursorPosition = ImGui.GetCursorPos();
                 ImGui.Text(primaryText);
 
@@ -239,8 +244,27 @@ public static class DrawHelpers
                     ImGui.SetCursorPos(cursorPosition);
                     ImGuiTweaks.TextColoredUnformatted(KnownColor.Gray.Vector(), $"\n{secondaryText}");
                 }
+
+                // 工具提示視窗是整個 ImGui context 共用的，字體倍率留著會污染別的外掛。
+                ImGui.SetWindowFontScale(1.0f);
             }
         }
+    }
+
+    /// <summary>
+    /// 工具提示的文字倍率。上游的工具提示吃的是 ImGui 預設字體大小，沒有任何設定管得到它。
+    /// </summary>
+    public static float GetTooltipTextScale() => Math.Clamp(System.SystemConfig.TooltipTextScale, 0.50f, 3.00f);
+
+    /// <summary>
+    /// 工具提示要用的 Alpha。工具提示畫在地圖視窗的 Alpha 樣式之內，
+    /// 預設沿用目前的樣式值（＝跟著地圖一起淡化）；關掉「跟隨地圖淡化」之後才由設定單獨決定。
+    /// </summary>
+    public static float GetTooltipAlpha()
+    {
+        var alpha = Math.Clamp(System.SystemConfig.TooltipOpacity, 0.05f, 1.00f);
+
+        return System.SystemConfig.TooltipFollowsMapFade ? alpha * ImGui.GetStyle().Alpha : alpha;
     }
 
     public static bool IsDisallowedIcon(uint iconId) =>

@@ -104,6 +104,15 @@ public class SystemConfig : CharacterConfiguration
     public bool ScaleTextWithZoom = true;
     public float AutoZoomScaleFactor = 0.33f;
 
+    // 台服追加：地圖標記工具提示（危命任務、乙太之光那種浮出來的小框）的文字大小與不透明度。
+    // 上游的工具提示完全吃 ImGui 預設值，既有的文字比例與淡化選項都管不到它。
+    public float TooltipTextScale = 1.0f;
+    public float TooltipOpacity = 1.0f;
+
+    // 工具提示是畫在地圖視窗的 Alpha 樣式之內的，所以本來就會跟著地圖一起淡化。
+    // 預設 true ＝ 維持原本行為；關掉之後工具提示只吃上面的 TooltipOpacity。
+    public bool TooltipFollowsMapFade = true;
+
     // 台服追加：在其他玩家的圖示底下墊一個色點，用來一眼分出好友／同部隊／一般玩家。
     // 小隊與團隊成員由 DrawGroupMembers 另外處理，不在這裡上色。
     // 台服追加：補畫遊戲寫給小地圖用的那份標記（其他外掛也會往裡面塞）。

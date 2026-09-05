@@ -123,6 +123,17 @@ public class MapFunctionsTab : ITabItem
             configChanged |= ImGui.Checkbox("偵錯模式", ref System.SystemConfig.DebugMode);
         }
 
+        ImGuiTweaks.Header("工具提示");
+        using (ImRaii.PushIndent()) {
+            configChanged |= ImGui.DragFloat("字體大小##tooltip", ref System.SystemConfig.TooltipTextScale, 0.01f, 0.50f, 3.00f);
+            configChanged |= ImGui.DragFloat("不透明度##tooltip", ref System.SystemConfig.TooltipOpacity, 0.01f, 0.05f, 1.00f);
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+            configChanged |= ImGuiTweaks.Checkbox("跟隨地圖淡化", ref System.SystemConfig.TooltipFollowsMapFade,
+                "工具提示畫在地圖視窗裡面，地圖淡化時它也會跟著一起變淡。\n" +
+                "關閉這個選項之後，工具提示只依照上面的「不透明度」顯示，不受地圖淡化影響。");
+        }
+
         ImGuiTweaks.Header("工具列");
         using (ImRaii.PushIndent()) {
             configChanged |= ImGui.Checkbox("永遠顯示", ref System.SystemConfig.AlwaysShowToolbar);

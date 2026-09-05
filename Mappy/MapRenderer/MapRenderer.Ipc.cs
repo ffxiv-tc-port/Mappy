@@ -62,11 +62,16 @@ public unsafe partial class MapRenderer
 
         if (!ImGui.IsItemHovered()) return;
 
+        var textScale = DrawHelpers.GetTooltipTextScale();
+
+        using var tooltipAlpha = ImRaii.PushStyle(ImGuiStyleVar.Alpha, DrawHelpers.GetTooltipAlpha());
         using var tooltip = ImRaii.Tooltip();
 
-        ImGui.Image(texture.Handle, ImGuiHelpers.ScaledVector2(32.0f, 32.0f));
+        ImGui.SetWindowFontScale(textScale);
+
+        ImGui.Image(texture.Handle, ImGuiHelpers.ScaledVector2(32.0f, 32.0f) * textScale);
         ImGui.SameLine();
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 7.5f * ImGuiHelpers.GlobalScale);
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 7.5f * ImGuiHelpers.GlobalScale * textScale);
 
         // 沒有提示文字時至少要讓使用者看得出這個標記是誰放的。
         ImGui.TextUnformatted(marker.Tooltip.Length is 0 ? marker.Source : marker.Tooltip);
@@ -74,5 +79,8 @@ public unsafe partial class MapRenderer
         if (marker.Tooltip.Length is not 0) {
             ImGuiTweaks.TextColoredUnformatted(KnownColor.Gray.Vector(), $"來源：{marker.Source}");
         }
+
+        // 工具提示視窗是整個 ImGui context 共用的，字體倍率留著會污染別的外掛。
+        ImGui.SetWindowFontScale(1.0f);
     }
 }
