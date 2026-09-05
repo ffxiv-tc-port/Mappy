@@ -9,6 +9,19 @@ namespace Mappy.Extensions;
 
 public static unsafe class FateContextExtensions
 {
+    /// <summary>
+    /// 依 FATE 剩餘時間算出顏色：剩餘 5 分鐘以內由黃漸變到紅，否則回傳白色。
+    /// </summary>
+    /// <param name="context">FATE 內容指標。只在呼叫當下解參，不保存跨幀。</param>
+    /// <param name="alpha">
+    /// 回傳顏色的 Alpha。<b>只對「直接把回傳值交給 ImGui」的呼叫端有效</b>
+    /// （<c>FateListWindow</c> 的清單文字就是這樣用，傳 1.0f）。
+    /// 若把回傳值放進 <c>MarkerInfo.RadiusColor</c> ／ <c>RadiusOutlineColor</c>
+    /// （<c>FateModule</c> 走這條），<c>DrawHelpers.DrawRadiusUnderlay</c> 會改用使用者設定的
+    /// 「區域顏色」／「區域外框顏色」的 Alpha 覆蓋掉它 —— 那是刻意的，
+    /// 地圖上所有圓圈的透明度統一由那兩個設定決定，不是各個標記自己說了算。
+    /// 所以預設值 0.33f 在地圖圓圈上永遠看不到效果。
+    /// </param>
     public static Vector4 GetColor(this Pointer<FateContext> context, float alpha = 0.33f)
     {
         var timeRemaining = GetTimeRemaining(context);
