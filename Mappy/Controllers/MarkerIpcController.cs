@@ -38,6 +38,8 @@ public class IpcMarker
 ///
 /// 執行緒：呼叫端可能在任何執行緒上呼叫，繪製則在框架執行緒上，所以全部經過 syncRoot，
 /// 繪製時取的是快照而不是直接列舉內部集合。
+/// 🔴 鎖內只准改記憶體狀態：Save() 與 log 都在鎖外做，
+/// 否則一次磁碟寫入就會讓每幀拿同一把鎖的繪製端卡住。
 /// </summary>
 public class MarkerIpcController : IDisposable
 {
@@ -99,43 +101,65 @@ public class MarkerIpcController : IDisposable
             safeTooltip = safeTooltip[..MaxTooltipLength];
         }
 
+        // 這把鎖繪製端每幀都要拿（GetMarkersForMap），而 IPC 端點是在呼叫端的執行緒上執行的，
+        // 任何外掛隨時可能進來。所以鎖內只改狀態，把「要印什麼、要不要存檔」記進區域變數；
+        // 磁碟寫入（SystemConfig.Save）與 log 一律等出鎖之後再做——在鎖內寫一次檔就等於讓畫面卡一次。
+        uint handle = 0;
+        var needsSave = false;
+        string? newSourceLog = null;
+        string? rejectedLog = null;
+
         lock (syncRoot) {
             if (!markersBySource.TryGetValue(trimmedSource, out var sourceMarkers)) {
                 if (markersBySource.Count >= MaxSources) {
-                    Service.Log.Information($"[Mappy] 標記來源數量已達上限 {MaxSources}，拒絕新來源「{trimmedSource}」。");
-                    return 0;
+                    rejectedLog = $"[Mappy] 標記來源數量已達上限 {MaxSources}，拒絕新來源「{trimmedSource}」。";
                 }
+                else {
+                    sourceMarkers = [];
+                    markersBySource[trimmedSource] = sourceMarkers;
 
-                sourceMarkers = [];
-                markersBySource[trimmedSource] = sourceMarkers;
+                    // 來源數量有上限，這裡的寫檔次數是有界的，不會像逐 icon 記錄那樣洗檔。
+                    needsSave = System.SystemConfig.IpcSourceEnabled.TryAdd(trimmedSource, true);
 
-                // 來源數量有上限，這裡的寫檔次數是有界的，不會像逐 icon 記錄那樣洗檔。
-                if (System.SystemConfig.IpcSourceEnabled.TryAdd(trimmedSource, true)) {
-                    SystemConfig.Save();
+                    newSourceLog = $"[Mappy] 新的標記來源「{trimmedSource}」已註冊。";
                 }
-
-                Service.Log.Information($"[Mappy] 新的標記來源「{trimmedSource}」已註冊。");
             }
 
-            if (sourceMarkers.Count >= MaxMarkersPerSource) {
-                Service.Log.Information($"[Mappy] 來源「{trimmedSource}」的標記數已達上限 {MaxMarkersPerSource}，拒絕新標記。");
-                return 0;
+            // sourceMarkers 是 null 只有一種可能：上面因為來源數量上限而拒絕了。
+            // 這一段等同於原本那兩個 return 0：被拒絕就不會走到下面配識別碼。
+            if (sourceMarkers is not null) {
+                if (sourceMarkers.Count >= MaxMarkersPerSource) {
+                    rejectedLog = $"[Mappy] 來源「{trimmedSource}」的標記數已達上限 {MaxMarkersPerSource}，拒絕新標記。";
+                }
+                else {
+                    handle = nextHandle++;
+                    if (nextHandle is 0) nextHandle = 1;
+
+                    sourceMarkers.Add(new IpcMarker {
+                        Handle = handle,
+                        Source = trimmedSource,
+                        MapId = mapId,
+                        MapCoordinates = mapCoordinates,
+                        IconId = iconId,
+                        Tooltip = safeTooltip,
+                    });
+                }
             }
-
-            var handle = nextHandle++;
-            if (nextHandle is 0) nextHandle = 1;
-
-            sourceMarkers.Add(new IpcMarker {
-                Handle = handle,
-                Source = trimmedSource,
-                MapId = mapId,
-                MapCoordinates = mapCoordinates,
-                IconId = iconId,
-                Tooltip = safeTooltip,
-            });
-
-            return handle;
         }
+
+        if (needsSave) {
+            SystemConfig.Save();
+        }
+
+        if (newSourceLog is not null) {
+            Service.Log.Information(newSourceLog);
+        }
+
+        if (rejectedLog is not null) {
+            Service.Log.Information(rejectedLog);
+        }
+
+        return handle;
     }
 
     private bool RemoveMarker(string source, uint handle)
