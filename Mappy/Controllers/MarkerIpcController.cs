@@ -40,6 +40,9 @@ public class IpcMarker
 /// 繪製時取的是快照而不是直接列舉內部集合。
 /// 🔴 鎖內只准改記憶體狀態：Save() 與 log 都在鎖外做，
 /// 否則一次磁碟寫入就會讓每幀拿同一把鎖的繪製端卡住。
+/// 🔴 syncRoot 只保護 markersBySource 與 nextHandle。SystemConfig.IpcSourceEnabled 不在它的
+/// 保護範圍內（設定頁在繪製執行緒上直接寫它，SystemConfig.Save() 又會序列化它），
+/// 所以那個欄位本身是 ConcurrentDictionary —— 理由寫在 SystemConfig.cs 的欄位註解上。
 /// </summary>
 public class MarkerIpcController : IDisposable
 {
