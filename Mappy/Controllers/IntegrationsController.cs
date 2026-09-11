@@ -10,6 +10,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using KamiLib.Classes;
 using KamiLib.Extensions;
 using Lumina.Excel.Sheets;
+using Lumina.Text.ReadOnly;
 using Mappy.Classes;
 using Mappy.Extensions;
 using MapType = FFXIVClientStructs.FFXIV.Client.UI.Agent.MapType;
@@ -313,12 +314,23 @@ public unsafe class IntegrationsController : IDisposable
 
     private uint? GetMapIdForQuest(OpenMapInfo* mapInfo)
     {
+        // 🔴 TitleString 是 Utf8String,它的 ToString() 把整段位元組當 UTF-8 直接解碼,
+        //    完全不剝 SeString payload。從聊天連結／任務日誌開地圖時這個標題常常帶 payload,
+        //    解出來會混進 U+FFFD 與控制位元組;而比對的另一端是 Lumina 的 ExtractText()
+        //    (payload 已剝掉)⇒ 兩端基準不同、string.Equals 恆假。
+        //    後果是靜默的:找不到對應地圖就落回預設行為,使用者只會覺得「連結開錯地圖」。
+        //    改用同一支 Lumina 解析器(ReadOnlySeStringSpan.ExtractText()),兩端同基準。
+        // ⚠️ 純文字標題兩種讀法逐字相同,所以沒有 payload 的情況行為不變。
+        // 📌 順便移出迴圈:原本每比一顆任務就重解一次同一個標題,
+        //    而最後那段 LINQ 會掃整張 Quest 表。
+        var mapTitle = new ReadOnlySeStringSpan(mapInfo->TitleString.AsSpan()).ExtractText();
+
         foreach (var leveQuest in QuestManager.Instance()->LeveQuests)
         {
             if (leveQuest.LeveId is 0) continue;
 
             var leveData = Service.DataManager.GetExcelSheet<Leve>().GetRow(leveQuest.LeveId);
-            if (!IsNameMatch(leveData.Name.ExtractText(), mapInfo)) continue;
+            if (!IsNameMatch(leveData.Name.ExtractText(), mapTitle)) continue;
 
             return leveData.LevelStart.Value.Map.RowId;
         }
@@ -329,7 +341,7 @@ public unsafe class IntegrationsController : IDisposable
 
             // Is this the quest we are looking for?
             var questData = Service.DataManager.GetExcelSheet<Quest>().GetRow(quest.QuestId + 65536u);
-            if (!IsNameMatch(questData.Name.ExtractText(), mapInfo)) continue;
+            if (!IsNameMatch(questData.Name.ExtractText(), mapTitle)) continue;
 
             return questData
                 .TodoParams.FirstOrDefault(param => param.ToDoCompleteSeq == quest.Sequence)
@@ -338,10 +350,10 @@ public unsafe class IntegrationsController : IDisposable
         }
 
         var possibleQuests = Service.DataManager.GetExcelSheet<Quest>()
-            .Where(quest => quest is { IssuerLocation: { IsValid: true, RowId: not 0 } }).FirstOrNull(quest => IsNameMatch(quest.Name.ExtractText(), mapInfo));
+            .Where(quest => quest is { IssuerLocation: { IsValid: true, RowId: not 0 } }).FirstOrNull(quest => IsNameMatch(quest.Name.ExtractText(), mapTitle));
 
         return possibleQuests?.IssuerLocation.Value.Map.RowId ?? null;
     }
 
-    private static bool IsNameMatch(string name, OpenMapInfo* mapInfo) => string.Equals(name, mapInfo->TitleString.ToString(), StringComparison.OrdinalIgnoreCase);
+    private static bool IsNameMatch(string name, string mapTitle) => string.Equals(name, mapTitle, StringComparison.OrdinalIgnoreCase);
 }

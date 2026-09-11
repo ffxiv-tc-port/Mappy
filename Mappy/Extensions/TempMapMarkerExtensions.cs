@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using Lumina.Text.ReadOnly;
 using Mappy.Classes;
 
 namespace Mappy.Extensions;
@@ -18,7 +19,12 @@ public static class TempMapMarkerExtensions
             Scale = scale,
             IconId = marker.MapMarker.IconId,
             Radius = marker.MapMarker.Scale,
-            PrimaryText = () => marker.TooltipText.ToString(),
+            // 🔴 TooltipText 是 Utf8String:ToString() 整段位元組 raw UTF-8 解碼、不剝 SeString payload,
+            //    帶 payload 的提示文字會直接畫成 U+FFFD 與控制位元組。改走 Lumina 的 ExtractText(),
+            //    與同目錄 MapMarkerBaseExtensions 先轉 SeString 再取文字同基準;純文字時逐字相同。
+            // ⚠️ 刻意維持「用到才解」的 lambda:這支每幀對每個標記呼叫一次,
+            //    提示文字只有滑鼠停上去才需要。
+            PrimaryText = () => new ReadOnlySeStringSpan(marker.TooltipText.AsSpan()).ExtractText(),
         });
     }
 }
