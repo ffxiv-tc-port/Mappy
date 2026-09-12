@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Hooking;
@@ -30,13 +30,48 @@ public unsafe partial class MapRenderer
     [Signature("E8 ?? ?? ?? ?? 48 8B 4B 30 FF 15 ?? ?? ?? ??", DetourName = nameof(OnImmediateContextProcessCommands))]
     private readonly Hook<ImmediateContextProcessCommands>? immediateContextProcessCommandsHook = null;
 
-    private bool requestUpdatedMaskingTexture;
+    // AddonAreaMap 與 AtkComponentMap 在本 pin 的 FFXIVClientStructs 裡**都沒有具名成員**
+    // （兩者都是空結構，只有 Size：0x7E0 與 0x420），所以下面兩個位移只能寫數字。
+    // 推導鏈記在這裡，遊戲改版時照著重驗一次：
+    //
+    //   MapComponentOffset = 0x430  ->  AtkComponentMap*
+    //     AddonAreaMap 的 vtable 在 0x1420DAF48，vf[49] = 0x14123B430。
+    //     它在 0x14123B4E9 用 AtkUnitBase::GetNodeById 取節點，再交給 0x140697B80 做
+    //     「型別檢查過的取元件」——那支會驗 AtkResNode.Type >= 1000、取
+    //     AtkComponentNode.Component（+0xB0），並比對 AtkUldComponentInfo.ComponentType
+    //     == 22（= ComponentType.Map），任何一關不過就回 null；結果同時寫進
+    //     +0x240（0x14123B4F9）與 +0x430（0x14123B5BC）。
+    //
+    //   MaskTextureOffset = 0x270  ->  Client::Graphics::Kernel::Texture*
+    //     AtkComponentMap::Ctor（由 CS 的特徵碼解出 0x140696880）在 0x140696956 把它清零；
+    //     0x1406972E0 先對舊值呼叫虛擬解構（vtbl+0x18），再用 Device::CreateTexture2D
+    //     （0x140208ED0，同樣由 CS 特徵碼解出）建一張 128x128、
+    //     TextureFormat.B8G8R8A8_UNORM（0x1450）的貼圖存回去（0x1406979A2）。
+    //     128x128 正好就是下面 LoadFogTexture 讀遮罩時用的尺寸。
+    private const int MapComponentOffset = 0x430;
+    private const int MaskTextureOffset = 0x270;
+
+    // 下界擋「假 null」（會被當成 NullReference 攔下來的低位址），上界擋 non-canonical 位址。
+    // 解參考之前這兩個檢查是唯一擋得住 AccessViolation 的東西 —— try/catch 擋不到它。
+    private const ulong MinimumPlausiblePointer = 0x1_0000;
+    private const ulong MaximumUserSpacePointer = 0x0000_7FFF_FFFF_FFFF;
+
+    // volatile：寫入端是繪製（框架）執行緒，讀取端是 ProcessCommands hook（遊戲的 RenderThread）。
+    private volatile bool requestUpdatedMaskingTexture;
     private byte[]? maskingTextureBytes;
 
     // LoadFogTexture 是丟到執行緒集區上跑的（Task.Run），那裡不准解 AgentMap 這類原生指標。
     // 所以背景貼圖路徑改成「趁還在繪製（框架）執行緒上先抄成字串」，背景只拿這份純資料快照。
     // volatile：寫入端是繪製執行緒，讀取端是 ProcessCommands hook。
     private volatile string? pendingFogBgPath;
+
+    // 遮罩貼圖的來源。框架執行緒解析完 addon 指標鏈之後，對 ID3D11Texture2D 加一次 COM 參考
+    // 才發佈出去 ⇒ hook 拿到的是「我們自己持有的資源」，不是「遊戲隨時可以回收的 addon 指標」。
+    // 這樣即使 AreaMap 在發佈與消費之間被關掉，那顆貼圖也不會在我們手上被釋放。
+    private FogMaskSource? fogMaskSource;
+
+    // 解析失敗的原因，給 hook 那行 Information 用，免得「霧一直不更新」查不出是卡在哪一關。
+    private volatile string? fogMaskUnavailableReason;
 
     private byte[]? blockyFogBytes;
     private IDalamudTextureWrap? fogTexture;
@@ -54,31 +89,83 @@ public unsafe partial class MapRenderer
     private void UnloadFogHooks()
     {
         immediateContextProcessCommandsHook?.Dispose();
+
+        // hook 停掉之後才把還沒被消費的那份參考還掉。Interlocked 保證同一份快照只會被其中
+        // 一邊取到，所以這裡與 hook 不會重複 Release。
+        var leftover = Interlocked.Exchange(ref fogMaskSource, null);
+
+        // 遊戲收攤的時候整個 D3D device 都在拆，這時候再去碰 COM 參考沒有好處；
+        // 行程本來就要結束了，漏一個參考無害。
+        if (leftover is not null && !Service.Framework.IsFrameworkUnloading) {
+            ComRelease(leftover.D3D11Texture2D);
+        }
     }
 
-    private void OnImmediateContextProcessCommands(ImmediateContext* commands, RenderCommandBufferGroup* bufferGroup, uint a3) =>
-        HookSafety.ExecuteSafe(() =>
-        {
-            // Delay by a certain number of frames because the game hasn't loaded the new texture yet.
-            if (requestUpdatedMaskingTexture && textureLoadStopwatch is { IsRunning: true, ElapsedMilliseconds: > 200 }) {
-                maskingTextureBytes = null;
-                maskingTextureBytes = GetPrebakedTextureBytes();
-                requestUpdatedMaskingTexture = false;
-                textureLoadStopwatch.Stop();
+    // 🔴 這支跑在**遊戲自己的 "RenderThread" 上，不是 Dalamud 的框架執行緒**。
+    //    離線證據（台服 7.20 ffxiv_dx11.exe）：
+    //      1. 上面 [Signature] 的 AOB 以 E8 開頭，Dalamud 的 ScanText 會跟著 rel32 走
+    //         ⇒ 唯一收斂到 0x1402184F0（ImmediateContext::ProcessCommands）。
+    //      2. 全 .text 只有三個分支落在它身上，其中每幀都會走的那個是 0x14021934D，
+    //         位於函式 0x140219300 —— 那支正好是 RenderThread 的 vtable（0x142001338）第 5 格。
+    //      3. 0x140219300 的內容就是一個工作執行緒迴圈：
+    //         WaitForSingleObject(this+0x28, INFINITE)
+    //           -> ProcessCommands(Device->ImmediateContext, Device->RenderCommandBuffer,
+    //                              Device->RenderCommandBufferCount)
+    //           -> SetEvent(this+0x30) -> 回頭再等。
+    //      4. 那個 this 就是 Device+0x10（CS 的 Device.RenderThread），在 0x1402081CA 被填進去，
+    //         緊接著 0x1402081E5 用字面字串 "RenderThread" 去開一條 OS 執行緒。
+    //    ⇒ 所以這裡**一律不解 addon／AgentMap 指標**，只消費框架執行緒發佈的快照。
+    //      CopyResource／MapSubresource 仍然留在命令處理點（進 Original 之前、
+    //      RenderThread 獨佔 immediate context 的那一刻），時序沒有改。
+    private void OnImmediateContextProcessCommands(ImmediateContext* commands, RenderCommandBufferGroup* bufferGroup, uint a3)
+    {
+        // 我們自己的工作即使整段失敗，原函式也一定要被叫下去，否則遊戲這一幀不會被畫出來。
+        HookSafety.ExecuteSafe(UpdateMaskingTextureIfRequested, Service.Log, "Exception during OnImmediateContextProcessCommands");
 
-                // 路徑一定要用繪製執行緒抄好的那一份，不可以在 Task.Run 裡面重新去讀 AgentMap。
-                var pendingBgPath = pendingFogBgPath;
+        immediateContextProcessCommandsHook!.Original(commands, bufferGroup, a3);
+    }
 
-                if (string.IsNullOrEmpty(pendingBgPath)) {
-                    Service.Log.Information("[Mappy] 霧貼圖：尚未從主執行緒取得地圖材質路徑，這次略過更新。");
-                }
-                else {
-                    Task.Run(() => LoadFogTexture(pendingBgPath));
-                }
+    private void UpdateMaskingTextureIfRequested()
+    {
+        // Delay by a certain number of frames because the game hasn't loaded the new texture yet.
+        if (!requestUpdatedMaskingTexture) return;
+        if (textureLoadStopwatch is not { IsRunning: true, ElapsedMilliseconds: > 200 }) return;
+
+        requestUpdatedMaskingTexture = false;
+        textureLoadStopwatch.Stop();
+
+        maskingTextureBytes = null;
+
+        // 原子取走：取到就由這裡負責 Release；沒取到就是已經被 UnloadFogHooks 收走了。
+        var maskSource = Interlocked.Exchange(ref fogMaskSource, null);
+
+        // 路徑一定要用繪製執行緒抄好的那一份，不可以在 Task.Run 裡面重新去讀 AgentMap。
+        var pendingBgPath = pendingFogBgPath;
+
+        try {
+            if (maskSource is null) {
+                Service.Log.Information($"[Mappy] 霧貼圖：主執行緒這一輪沒有交出可用的探索遮罩貼圖（{fogMaskUnavailableReason ?? "原因未記錄"}），這次略過更新。");
+                return;
             }
 
-            immediateContextProcessCommandsHook!.Original(commands, bufferGroup, a3);
-        }, Service.Log, "Exception during OnImmediateContextProcessCommands");
+            if (string.IsNullOrEmpty(pendingBgPath)) {
+                Service.Log.Information("[Mappy] 霧貼圖：尚未從主執行緒取得地圖材質路徑，這次略過更新。");
+                return;
+            }
+
+            maskingTextureBytes = ReadMaskTextureBytes(maskSource.D3D11Texture2D);
+
+            if (maskingTextureBytes is null) {
+                Service.Log.Information("[Mappy] 霧貼圖：讀回探索遮罩貼圖失敗，這次略過更新。");
+                return;
+            }
+
+            Task.Run(() => LoadFogTexture(pendingBgPath));
+        }
+        finally {
+            if (maskSource is not null) ComRelease(maskSource.D3D11Texture2D);
+        }
+    }
 
     private void DrawFogOfWar()
     {
@@ -103,6 +190,15 @@ public unsafe partial class MapRenderer
             if (fogAgent is not null) {
                 pendingFogBgPath = $"{fogAgent->SelectedMapBgPath.ToString()}.tex";
             }
+
+            // addon 指標鏈只在這裡走 —— 這裡確定是框架執行緒：Dalamud 的
+            // SharedImmediateTexture.TryGetWrap() 會呼叫 ThreadSafety.AssertMainThread()，
+            // 而 GetWrapOrEmpty()／GetWrapOrDefault() 全都走它 ⇒ 每一個在 ImGui 裡畫遊戲貼圖的
+            // 外掛每幀都會踩到那個斷言。實機 26 份 dalamud*.log 裡 [ThreadSafety] 只有 2 筆，
+            // 兩筆都是 WrathCombo 在 Dispose 期間走 RunOnFrameworkThread 的卸載旁路，
+            // 繪製路徑一筆都沒有（那個旗標是 [ThreadStatic]，只在 Framework.HandleFrameworkUpdate
+            // 裡設過）。等待的那 200 毫秒內每幀重新發佈一次，hook 拿到的就是最新一幀的貼圖。
+            PublishFogMaskSource();
         }
 
         if (fogTexture is not null) {
@@ -174,30 +270,96 @@ public unsafe partial class MapRenderer
         Task.Run(CleanupFogTexture);
     }
 
-    private static byte[]? GetPrebakedTextureBytes()
+    /// <summary>
+    /// 在框架（繪製）執行緒上把探索遮罩貼圖解析好，加一次 COM 參考之後發佈給 ProcessCommands hook。
+    /// </summary>
+    private void PublishFogMaskSource()
+    {
+        var resolved = ResolveFogMaskSource();
+
+        var previous = Interlocked.Exchange(ref fogMaskSource, resolved);
+        if (previous is not null) ComRelease(previous.D3D11Texture2D);
+    }
+
+    /// <summary>
+    /// 走 AreaMap -&gt; AtkComponentMap -&gt; Texture -&gt; ID3D11Texture2D 這條鏈，每一步都先驗證再解參考。
+    /// 任何一關不過就整輪放棄（fail-closed），並把原因記下來給 hook 那行 log 用。
+    /// </summary>
+    private FogMaskSource? ResolveFogMaskSource()
     {
         var addon = Service.GameGui.GetAddonByName<AddonAreaMap>("AreaMap");
-        if (addon is null) return null;
+        if (addon is null) return FogMaskUnavailable("AreaMap 沒有開著");
 
-        var componentMap = (void*)Marshal.ReadIntPtr((nint)addon, 0x430);
-        if (componentMap is null) return null;
+        // ULD 還在載的時候下面那些欄位還沒被填好，+0x430 拿到的不保證是有效指標。
+        if (addon->UldManager.LoadedState is not AtkLoadState.Loaded) return FogMaskUnavailable($"AreaMap 的 UldManager 還沒載完（LoadedState={addon->UldManager.LoadedState}）");
+        if (addon->UldManager.NodeListCount is 0) return FogMaskUnavailable("AreaMap 的節點列表是空的");
 
-        var texturePointer = (Texture*)Marshal.ReadIntPtr((nint)componentMap, 0x270);
-        if (texturePointer is null) return null;
+        var componentAddress = *(nint*)((byte*)addon + MapComponentOffset);
+        if (!IsPlausiblePointer(componentAddress)) return FogMaskUnavailable("地圖元件指標不像有效位址");
 
-        var device = CppObject.FromPointer<Device>(Service.PluginInterface.UiBuilder.DeviceHandle);
+        var mapComponent = (AtkComponentMap*)componentAddress;
 
-        var texture = CppObject.FromPointer<Texture2D>((nint)texturePointer->D3D11Texture2D);
+        // 型別檢查：照遊戲自己那支取元件函式（0x140697B80）的判準再走一次，擋掉
+        // 「這一格其實掛著別的元件樣板」那整類問題 —— 那是位移對不上時最常見的失敗形狀。
+        var ownerNode = mapComponent->OwnerNode;
+        if (ownerNode is null) return FogMaskUnavailable("地圖元件沒有 OwnerNode");
+        if ((nint)ownerNode->Component != componentAddress) return FogMaskUnavailable("地圖元件與 OwnerNode 對不起來");
+        if (mapComponent->UldManager.LoadedState is not AtkLoadState.Loaded) return FogMaskUnavailable($"地圖元件的 UldManager 還沒載完（LoadedState={mapComponent->UldManager.LoadedState}）");
+
+        var objectInfo = (AtkUldComponentInfo*)mapComponent->UldManager.Objects;
+        if (objectInfo is null) return FogMaskUnavailable("地圖元件沒有 ULD 物件資訊");
+        if (objectInfo->ComponentType is not ComponentType.Map) return FogMaskUnavailable($"+0x430 掛的不是地圖元件（ComponentType={objectInfo->ComponentType}）");
+
+        var textureAddress = *(nint*)((byte*)mapComponent + MaskTextureOffset);
+        if (!IsPlausiblePointer(textureAddress)) return FogMaskUnavailable("遮罩貼圖指標不像有效位址（地圖元件可能還沒建好貼圖）");
+
+        var maskTexture = (Texture*)textureAddress;
+        var d3D11Texture2D = (nint)maskTexture->D3D11Texture2D;
+        if (!IsPlausiblePointer(d3D11Texture2D)) return FogMaskUnavailable("遮罩貼圖還沒有對應的 ID3D11Texture2D");
+
+        // 加一次參考之後這顆貼圖就不會在我們手上被釋放，hook 那邊可以放心用。
+        ComAddRef(d3D11Texture2D);
+        fogMaskUnavailableReason = null;
+
+        return new FogMaskSource(d3D11Texture2D);
+    }
+
+    private FogMaskSource? FogMaskUnavailable(string reason)
+    {
+        fogMaskUnavailableReason = reason;
+        return null;
+    }
+
+    /// <summary>
+    /// 下界擋假 null、上界擋 non-canonical 位址。這是解參考之前唯一擋得住 AccessViolation 的檢查
+    /// —— AccessViolationException 在 .NET Core 是 corrupted-state exception，try/catch 攔不到。
+    /// </summary>
+    private static bool IsPlausiblePointer(nint value)
+        => (ulong)value >= MinimumPlausiblePointer && (ulong)value <= MaximumUserSpacePointer;
+
+    /// <summary>
+    /// 把遊戲的遮罩貼圖複製到一張 staging 貼圖再讀回 CPU。呼叫點刻意留在 ProcessCommands 的
+    /// detour 裡（進 Original 之前），那一刻 RenderThread 獨佔 immediate context。
+    /// </summary>
+    private static byte[]? ReadMaskTextureBytes(nint d3D11Texture2D)
+    {
+        var deviceHandle = Service.PluginInterface.UiBuilder.DeviceHandle;
+        if (deviceHandle == nint.Zero) return null;
+
+        var device = CppObject.FromPointer<Device>(deviceHandle);
+        var texture = CppObject.FromPointer<Texture2D>(d3D11Texture2D);
+
+        var sourceDescription = texture.Description;
         var desc = new Texture2DDescription
         {
             ArraySize = 1,
             BindFlags = BindFlags.None,
             CpuAccessFlags = CpuAccessFlags.Read,
-            Format = texture.Description.Format,
-            Height = texture.Description.Height,
-            Width = texture.Description.Width,
+            Format = sourceDescription.Format,
+            Height = sourceDescription.Height,
+            Width = sourceDescription.Width,
             MipLevels = 1,
-            OptionFlags = texture.Description.OptionFlags,
+            OptionFlags = sourceDescription.OptionFlags,
             SampleDescription = new SampleDescription(1, 0),
             Usage = ResourceUsage.Staging
         };
@@ -206,12 +368,40 @@ public unsafe partial class MapRenderer
         var context = device.ImmediateContext;
 
         context.CopyResource(texture, stagingTexture);
-        device.ImmediateContext.MapSubresource(stagingTexture, 0, MapMode.Read, MapFlags.None, out var dataStream);
+        context.MapSubresource(stagingTexture, 0, MapMode.Read, MapFlags.None, out var dataStream);
 
-        using var pixelDataStream = new MemoryStream();
-        dataStream.CopyTo(pixelDataStream);
+        try {
+            using var pixelDataStream = new MemoryStream();
+            dataStream.CopyTo(pixelDataStream);
 
-        return pixelDataStream.ToArray();
+            return pixelDataStream.ToArray();
+        }
+        finally {
+            // 原本少了這一步：staging 貼圖會在還被 map 著的狀態下被釋放。
+            context.UnmapSubresource(stagingTexture, 0);
+        }
+    }
+
+    // IUnknown 的 vtable 前三格固定是 QueryInterface／AddRef／Release。這裡直接走 vtable 而不用
+    // Marshal.AddRef／Marshal.Release，是為了不依賴執行期的內建 COM 互通開關。
+    private static void ComAddRef(nint pUnknown)
+    {
+        var vtable = *(nint**)pUnknown;
+        ((delegate* unmanaged[Stdcall]<nint, uint>)vtable[1])(pUnknown);
+    }
+
+    private static void ComRelease(nint pUnknown)
+    {
+        var vtable = *(nint**)pUnknown;
+        ((delegate* unmanaged[Stdcall]<nint, uint>)vtable[2])(pUnknown);
+    }
+
+    /// <summary>
+    /// 已經加過一次 COM 參考的遮罩貼圖。持有者負責在用完之後 <see cref="ComRelease"/> 一次。
+    /// </summary>
+    private sealed class FogMaskSource(nint d3D11Texture2D)
+    {
+        public nint D3D11Texture2D { get; } = d3D11Texture2D;
     }
 
     private void CleanupFogTexture()
