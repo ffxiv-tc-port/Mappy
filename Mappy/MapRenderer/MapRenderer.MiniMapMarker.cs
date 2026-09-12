@@ -8,12 +8,8 @@ public unsafe partial class MapRenderer
 {
     /// <summary>
     /// AgentMap 有兩份標記陣列：MapMarkers 給大地圖、MiniMapMarkers 給小地圖。
-    /// 上游 Mappy 只畫前者，所以其他外掛（例如 EurekaHelper）寫進 MiniMapMarkers 的標記
-    /// 在 Mappy 接管大地圖之後就完全看不到了。這裡把後者補畫上去。
-    ///
-    /// ⚠️ AgentMap 的這些偏移沒有對台服執行檔做過離線驗證。偏移若不對，讀到的會是垃圾資料
-    /// 而不是崩潰（都在結構內，不會越界解參考），失敗形式是「畫出一堆亂七八糟的標記」。
-    /// 所以下面的健全性閘門是必要的：擋不住就整批不畫，並留一行 Information 讓使用者回報。
+    /// 上游 Mappy 只畫前者，所以其他外掛寫進 MiniMapMarkers 的標記在 Mappy 接管大地圖之後就看不到了。
+    /// ⚠️ 這些偏移沒有對台服執行檔做過離線驗證。偏移若不對，讀到的會是垃圾資料而不是崩潰，所以下面的健全性閘門是必要的。
     /// </summary>
     private uint lastMiniMapMarkerDiagnosticMapId;
 
@@ -76,11 +72,9 @@ public unsafe partial class MapRenderer
 
             // 乙太之光（DataType 3）與城內乙太網水晶（DataType 4）大地圖那份本來就有，
             // 而且才是權威：小地圖這份的同一座水晶座標/圖示不必逐位相同，
-            // 下面的去重鍵擋不住，畫出來就是數量不對（2026-08-31 使用者回報，舊薩雷安實機截圖）。
-            // ⚠️ MiniMapMarker.DataType 與 MapMarkerInfo.DataType 同語意家族是合理推論非實機實證；
-            //    推論錯的後果只是「少畫幾個小地圖標記」，不會多畫也不會崩。
-            // 📌 EurekaHelper 這類外掛用 AddMiniMapMarker 寫入的自訂標記 DataType 恆為 0
-            //    （CS 的 AddMiniMapMarker 只填 MapMarker 欄位），不受影響。
+            // 下面的去重鍵擋不住，畫出來就是數量不對。
+            // ⚠️ DataType 同語意家族是合理推論非實機實證，推論錯的後果只是少畫幾個標記，不會多畫也不會崩。
+            // 📌 其他外掛用 AddMiniMapMarker 寫入的自訂標記 DataType 恆為 0，不受影響。
             if (entry.DataType is 3 or 4) continue;
 
             if (!drawnMarkers.Add((marker.X, marker.Y, marker.IconId))) continue;

@@ -15,11 +15,8 @@ public unsafe partial class MapRenderer
 {
     /// <summary>
     /// 畫其他外掛透過 IPC 放上來的標記。排在最後，這些標記會蓋在其他東西上面。
-    ///
     /// 這裡刻意不走 DrawHelpers.DrawMapMarker：那條路徑第一次看到某個 IconId 就會
     /// 寫一次 IconConfig，外部來源的圖示不該把使用者的圖示設定清單灌爆。
-    /// 代價是這些標記沒有逐 icon 的個別設定，改為在設定頁提供逐「來源」的開關
-    /// ——對使用者來說「關掉狩獵列車的標記」本來就比「關掉 60561 號圖示」好懂。
     /// </summary>
     private void DrawIpcMarkers()
     {
@@ -36,7 +33,6 @@ public unsafe partial class MapRenderer
 
     /// <summary>
     /// 地圖座標（介面上顯示的 X/Y）換算成貼圖座標。
-    ///
     /// 遊戲的正向公式是 mapCoord = 41 / c * (texture / 2048) + 1，其中 c = SelectedMapSizeFactorFloat，
     /// texture 已經含了 1024 的置中位移。反過來就是下面這行。
     /// </summary>

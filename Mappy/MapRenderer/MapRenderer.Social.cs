@@ -14,13 +14,8 @@ public unsafe partial class MapRenderer
 {
     /// <summary>
     /// 在其他玩家圖示底下墊一個色點，用來分辨好友／同部隊／一般玩家。
-    ///
     /// 必須排在 DrawGameObjects 之前，色點才會在圖示底下而不是蓋住圖示。
-    ///
-    /// 🔴 這裡刻意完全不碰原生指標：好友旗標走 Dalamud 的 ICharacter.StatusFlags，
-    /// 部隊名走 ICharacter.CompanyTag，兩個都是託管屬性，每幀重新取值。
-    /// 不要為了「跟別的外掛一樣」改成 (Character*)obj.Address ——
-    /// IGameObject.Address 是建構時凍結的，跨幀用它就是 AVE 的來源。
+    /// 🔴 刻意完全不碰原生指標：好友旗標與部隊名都走 Dalamud 的託管屬性，每幀重新取值——改成 (Character*)obj.Address 就是 AVE 的來源。
     /// </summary>
     private void DrawSocialMarkers()
     {
