@@ -8,20 +8,8 @@ namespace Mappy.Controllers;
 
 /// <summary>
 /// Mappy 對 Lifestream 的單向消費端。
-///
 /// 只有在使用者親手點擊地圖上的乙太網標記、或親手選右鍵選單的「移動到這裡」時才會呼叫，
 /// 沒有任何自動化或事件驅動的呼叫鏈。
-///
-/// 🔴 下面這些字串是跨外掛的行為契約，對應 Lifestream/Lifestream/IPC/IPCProvider.cs：
-///   Lifestream.AethernetTeleportById(uint aetheryteSheetRowId) -> bool
-///   Lifestream.AethernetTeleportByPlaceNameId(uint placeNameRowId) -> bool
-///   Lifestream.GetActiveAetheryte() -> uint
-///   Lifestream.GetActiveResidentialAetheryte() -> uint
-///   Lifestream.GetActiveCustomAetheryte() -> uint
-///   Lifestream.IsBusy() -> bool
-///   Lifestream.GoToMapPoint(uint territoryId, float worldX, float worldZ, bool fly) -> bool
-///   Lifestream.Abort()   ← 這個是 EzIPC 的 void 方法，所以消費端要用 InvokeAction()
-/// 改名字要兩邊一起改，否則失敗形式是「靜默退回內建傳送」而不是報錯。
 /// </summary>
 public class LifestreamIpc
 {
@@ -34,9 +22,6 @@ public class LifestreamIpc
     private readonly ICallGateSubscriber<uint> getActiveCustomAetheryte;
     private readonly ICallGateSubscriber<bool> isBusy;
 
-    /// <summary>
-    /// 「走到這張圖上的這個世界座標」。territory／worldX／worldZ／要不要飛。
-    /// </summary>
     /// <remarks>
     /// 回 false 代表 <b>Lifestream 一件事都沒有排</b>（忙碌中、人不能動、算不出路線…），
     /// 呼叫端不要傻等。整段編排（跨區判定→傳送→等載入→上坐騎→走）都在 Lifestream 那邊，
@@ -44,9 +29,6 @@ public class LifestreamIpc
     /// </remarks>
     private readonly ICallGateSubscriber<uint, float, float, bool, bool> goToMapPoint;
 
-    /// <summary>
-    /// 中止 Lifestream 目前排的所有工作。
-    /// </summary>
     /// <remarks>
     /// ⚠️ Lifestream 端是 <c>public void Abort()</c>，EzIPC 把 void 方法註冊成
     /// <c>RegisterAction</c>／<c>GetIpcProvider&lt;object&gt;</c>，所以這裡的型別參數是
@@ -63,6 +45,7 @@ public class LifestreamIpc
 
     public LifestreamIpc()
     {
+        // 這些端點名稱是跨外掛的行為契約：改名字要兩邊一起改，否則失敗形式是「靜默退回內建傳送」而不是報錯。
         aethernetTeleportById = Service.PluginInterface.GetIpcSubscriber<uint, bool>("Lifestream.AethernetTeleportById");
         aethernetTeleportByPlaceNameId = Service.PluginInterface.GetIpcSubscriber<uint, bool>("Lifestream.AethernetTeleportByPlaceNameId");
         getActiveAetheryte = Service.PluginInterface.GetIpcSubscriber<uint>("Lifestream.GetActiveAetheryte");
@@ -171,11 +154,7 @@ public class LifestreamIpc
         return resolved;
     }
 
-    /// <summary>
-    /// Lifestream 現在是不是忙著跑別的行程。
-    /// </summary>
     /// <returns>
-    /// <see langword="true"/>／<see langword="false"/> 是問到的答案；
     /// <see langword="null"/> 代表<b>問不到</b>（沒安裝、或是舊版沒有這個端點）。
     /// 🔑 刻意分成三態而不是把「問不到」摺成 false——UI 上「不知道」要看得見，
     /// 畫成「沒在忙」會讓使用者以為可以按。
@@ -196,15 +175,7 @@ public class LifestreamIpc
     /// <summary>
     /// 請 Lifestream 把角色送到指定地圖上的世界座標（跨區會自動傳送，可選擇用飛行坐騎）。
     /// </summary>
-    /// <param name="territoryId">目標的 TerritoryType 列號（<c>AgentMap.SelectedTerritoryId</c>）。</param>
-    /// <param name="worldX">世界座標 X。</param>
     /// <param name="worldZ">世界座標 Z（<b>不是地圖上的 Y</b>）。</param>
-    /// <param name="fly">允許使用飛行坐騎；不可飛的區域由 Lifestream 自己退回用走的。</param>
-    /// <returns>
-    /// <see langword="true"/> 代表 Lifestream 真的排了工作，UI 可以顯示「移動中」；
-    /// <see langword="false"/> 代表<b>它一件事都沒排</b>（含未安裝、舊版沒有這個端點、
-    /// 忙碌中、人不能動），呼叫端不要等。
-    /// </returns>
     public bool TryGoToMapPoint(uint territoryId, float worldX, float worldZ, bool fly)
     {
         if (territoryId is 0) return false;

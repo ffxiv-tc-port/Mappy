@@ -22,27 +22,7 @@ public class IpcMarker
 /// <summary>
 /// Mappy 的通用標記 IPC。讓其他外掛（狩獵列車、藏寶圖……）把標記畫到 Mappy 的地圖上，
 /// 不必自己處理 SizeFactor／Offset 的換算。
-///
-/// 🔴 對外契約（改名字＝破壞相容性，呼叫端會靜默失效）：
-///   Mappy.GetVersion() -> int
-///       目前回 1。呼叫端應該先問版本再用其他端點。
-///   Mappy.AddMarker(string source, uint mapId, Vector2 mapCoords, uint iconId, string tooltip) -> uint
-///       mapCoords 是「地圖座標」，也就是遊戲介面上顯示的 X/Y（例如 12.3, 34.5），
-///       不是世界座標也不是貼圖座標。
-///       回傳非 0 的識別碼供之後移除；被拒絕時回 0（來源為空、mapId 為 0、iconId 為 0、
-///       或超出數量上限）。
-///   Mappy.RemoveMarker(string source, uint handle) -> bool
-///       移除單一標記，找不到時回 false。
-///   Mappy.ClearSource(string source) -> bool
-///       清掉某個來源的全部標記，來源不存在時回 false。
-///
-/// 執行緒：呼叫端可能在任何執行緒上呼叫，繪製則在框架執行緒上，所以全部經過 syncRoot，
-/// 繪製時取的是快照而不是直接列舉內部集合。
-/// 🔴 鎖內只准改記憶體狀態：Save() 與 log 都在鎖外做，
-/// 否則一次磁碟寫入就會讓每幀拿同一把鎖的繪製端卡住。
-/// 🔴 syncRoot 只保護 markersBySource 與 nextHandle。SystemConfig.IpcSourceEnabled 不在它的
-/// 保護範圍內（設定頁在繪製執行緒上直接寫它，SystemConfig.Save() 又會序列化它），
-/// 所以那個欄位本身是 ConcurrentDictionary —— 理由寫在 SystemConfig.cs 的欄位註解上。
+/// 執行緒：呼叫端可能在任何執行緒上呼叫，繪製則在框架執行緒上，所以全部經過 syncRoot、繪製時取的是快照；鎖內只准改記憶體狀態，Save() 與 log 都在鎖外做。
 /// </summary>
 public class MarkerIpcController : IDisposable
 {

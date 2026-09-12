@@ -319,10 +319,6 @@ public unsafe class IntegrationsController : IDisposable
         //    解出來會混進 U+FFFD 與控制位元組;而比對的另一端是 Lumina 的 ExtractText()
         //    (payload 已剝掉)⇒ 兩端基準不同、string.Equals 恆假。
         //    後果是靜默的:找不到對應地圖就落回預設行為,使用者只會覺得「連結開錯地圖」。
-        //    改用同一支 Lumina 解析器(ReadOnlySeStringSpan.ExtractText()),兩端同基準。
-        // ⚠️ 純文字標題兩種讀法逐字相同,所以沒有 payload 的情況行為不變。
-        // 📌 順便移出迴圈:原本每比一顆任務就重解一次同一個標題,
-        //    而最後那段 LINQ 會掃整張 Quest 表。
         var mapTitle = new ReadOnlySeStringSpan(mapInfo->TitleString.AsSpan()).ExtractText();
 
         foreach (var leveQuest in QuestManager.Instance()->LeveQuests)

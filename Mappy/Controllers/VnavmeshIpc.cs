@@ -8,25 +8,6 @@ namespace Mappy.Controllers;
 /// <summary>
 /// Mappy 對 vnavmesh 的消費端：只用來「問有沒有在走」與「叫它停」。
 /// </summary>
-/// <remarks>
-/// <para>
-/// 🔴 下面這些字串是跨外掛的行為契約，對應 vnavmesh/vnavmesh/IPCProvider.cs：
-/// <code>
-///   vnavmesh.Path.IsRunning() -> bool                （RegisterFunc）
-///   vnavmesh.Path.Stop()                             （RegisterAction，所以是 InvokeAction）
-///   vnavmesh.SimpleMove.PathfindInProgress() -> bool （RegisterFunc）
-/// </code>
-/// 改名字要兩邊一起改，否則失敗形式是「停止鍵按了沒反應」而不是報錯。
-/// </para>
-/// <para>
-/// 🔴 <b>為什麼停止要補送而不是送一次就好</b>：<c>Path.Stop</c> 清的是「已經算好的路徑點」，
-/// 但 <c>SimpleMove.PathfindAndMoveTo</c> 是把路徑計算丟到背景工作，算完之後才交給
-/// FollowPath 開走。所以在「還在算」的那段期間按停止是攔不住的——使用者會看到
-/// 「按了停止、幾秒後角色自己走起來」。解法是開一個補送窗口，持續送停止直到
-/// vnavmesh 兩個狀態都回 false。（做法抄自 TCToolbox <c>Core/NavStop.cs</c>，
-/// 那邊是引用計數的共用設施，Mappy 只有一個使用者所以簡化成單例。）
-/// </para>
-/// </remarks>
 public class VnavmeshIpc : IDisposable
 {
     private const string VnavmeshInternalName = "vnavmesh";
@@ -34,9 +15,6 @@ public class VnavmeshIpc : IDisposable
     /// <summary>補送停止的窗口長度。窗口內每 100ms 補送一次，確認停了就提早收工。</summary>
     private static readonly TimeSpan EnforceWindow = TimeSpan.FromSeconds(3);
 
-    /// <summary>
-    /// 補送停止的<b>絕對</b>上限（自第一次 <see cref="RequestStop"/> 起算）。
-    /// </summary>
     /// <remarks>
     /// 🔴 為什麼需要：窗口到期時只要 vnavmesh 還在算路徑就會延展，若 IPC 端點因故永遠卡在
     /// true，看門狗就會永久補送。這條上限保證它一定會收工。
