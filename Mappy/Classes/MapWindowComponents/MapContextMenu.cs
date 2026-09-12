@@ -82,10 +82,8 @@ public unsafe class MapContextMenu
 
     /// <summary>
     /// 「移動到這裡」：插旗＋把整段前往交給 Lifestream（跨區傳送、上坐騎、飛過去都在它那邊）。
-    /// </summary>
-    /// <remarks>
     /// 🔴 這是<b>使用者親手點下去</b>才會發生的一次性動作，沒有任何事件驅動的自動接手鏈。
-    /// </remarks>
+    /// </summary>
     private static void DrawTravelToHere(Vector2 mapDrawOffset)
     {
         var cursorPosition = ImGui.GetMousePosOnOpeningCurrentPopup();
@@ -263,9 +261,6 @@ public unsafe class MapContextMenu
         return lines;
     }
 
-    /// <summary>
-    /// 預測這個區域能不能飛。
-    /// </summary>
     /// <returns>
     /// <see langword="null"/>＝<b>判斷不出來</b>（查不到區域資料、或玩家狀態還沒就緒）。
     /// 🔑 這只是給使用者看的預告；真正決定飛不飛的是 Lifestream，它自己會退回用走的。

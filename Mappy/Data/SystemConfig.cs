@@ -136,19 +136,9 @@ public class SystemConfig : CharacterConfiguration
 
     // 台服追加：其他外掛透過 IPC 放上來的標記，逐「來源」的開關。
     // 來源第一次出現時會自動以 true 加進來。
-    //
-    // 🔴 這個字典被三種執行緒碰，所以型別必須是 ConcurrentDictionary，不能是 Dictionary：
-    //   ① MarkerIpcController.AddMarker 的 TryAdd —— IPC 端點跑在呼叫端的執行緒上。
-    //   ② 設定頁 IpcMarkerTab.Draw 的索引指派 —— 繪製執行緒。
-    //   ③ SystemConfig.Save() 的序列化列舉 —— 上面兩種執行緒都會呼叫到（全外掛 20 個呼叫點）。
-    // 裸 Dictionary 在 ③ 與 ①／② 並行時，失敗形式不是「拿到舊值」，而是序列化當場擲
-    // InvalidOperationException，再被 KamiLib SaveFile 的 catch 吞成一行 Error ——
-    // 使用者這一次改的「全部」設定就這樣靜默沒存到（Save 序列化的是整個 SystemConfig）。
-    // 離線實測：同樣的並行條件下 200 次序列化，Dictionary 失敗 193 次、ConcurrentDictionary 0 次。
-    //
-    // ⚠️ 唯一的可見差異：ConcurrentDictionary 的列舉順序不是插入順序，設定檔裡這一段的
-    //    鍵順序會與舊版不同。既有設定檔照樣讀得進來（System.Text.Json 對
-    //    ConcurrentDictionary<string, bool> 的序列化與反序列化都原生支援），讀取一律按鍵名查。
+    // 🔴 型別必須是 ConcurrentDictionary：IPC 端點（呼叫端執行緒）、設定頁（繪製執行緒）與
+    //    Save() 的序列化列舉會並行，裸 Dictionary 的失敗形式是序列化當場擲例外、被 KamiLib
+    //    SaveFile 的 catch 吞成一行 Error —— 使用者這一次改的「全部」設定就這樣靜默沒存到。
     public ConcurrentDictionary<string, bool> IpcSourceEnabled = new();
 
     // Do not persist this setting
