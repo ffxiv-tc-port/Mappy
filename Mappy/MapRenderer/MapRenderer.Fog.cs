@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -43,7 +44,6 @@ public unsafe partial class MapRenderer
 
     // volatile：寫入端是繪製（框架）執行緒，讀取端是 ProcessCommands hook（遊戲的 RenderThread）。
     private volatile bool requestUpdatedMaskingTexture;
-    private byte[]? maskingTextureBytes;
 
     // LoadFogTexture 是丟到執行緒集區上跑的（Task.Run），那裡不准解 AgentMap 這類原生指標。
     // 所以背景貼圖路徑改成「趁還在繪製（框架）執行緒上先抄成字串」，背景只拿這份純資料快照。
@@ -58,10 +58,19 @@ public unsafe partial class MapRenderer
     // 解析失敗的原因，給 hook 那行 Information 用，免得「霧一直不更新」查不出是卡在哪一關。
     private volatile string? fogMaskUnavailableReason;
 
-    private byte[]? blockyFogBytes;
+    // 背景工作建立、繪製執行緒每幀讀來畫：交棒走 Interlocked，換下來的舊 wrap 進佇列，
+    // 由繪製執行緒釋放 —— 背景執行緒不可以釋放這一幀可能正在被畫的那一顆。
     private IDalamudTextureWrap? fogTexture;
+    private readonly ConcurrentQueue<IDalamudTextureWrap> retiredFogTextures = new();
+
+    // 慢的那一輪不准蓋掉快的那一輪：背景工作發佈結果之前先比世代。
+    private long fogGeneration;
+
+    // Stopwatch 不是執行緒安全的，而這個等待窗是「繪製執行緒開始、hook 判到期」。
+    // 改成單一 long 時間戳，兩端都只做原子讀寫。
+    private long maskRequestTimestamp;
+
     private int lastKnownDiscoveryFlags;
-    private readonly Stopwatch textureLoadStopwatch = new();
 
     private static int CurrentDiscoveryFlags => AtkStage.Instance()->GetNumberArrayData(NumberArrayType.AreaMap2)->IntArray[2];
 
@@ -84,6 +93,15 @@ public unsafe partial class MapRenderer
         if (leftover is not null && !Service.Framework.IsFrameworkUnloading) {
             ComRelease(leftover.D3D11Texture2D);
         }
+
+        // 換世代讓還在跑的背景工作不要再發佈貼圖。視窗系統在這之前就已經拆掉，
+        // 所以這一刻不會有人在畫這些貼圖。
+        Interlocked.Increment(ref fogGeneration);
+
+        if (!Service.Framework.IsFrameworkUnloading) {
+            SwapFogTexture(null);
+            DisposeRetiredFogTextures();
+        }
     }
 
     // 🔴 這支跑在**遊戲自己的 "RenderThread" 上，不是 Dalamud 的框架執行緒**。
@@ -102,18 +120,16 @@ public unsafe partial class MapRenderer
     {
         // Delay by a certain number of frames because the game hasn't loaded the new texture yet.
         if (!requestUpdatedMaskingTexture) return;
-        if (textureLoadStopwatch is not { IsRunning: true, ElapsedMilliseconds: > 200 }) return;
+        if (Stopwatch.GetElapsedTime(Volatile.Read(ref maskRequestTimestamp)).TotalMilliseconds <= 200) return;
 
         requestUpdatedMaskingTexture = false;
-        textureLoadStopwatch.Stop();
-
-        maskingTextureBytes = null;
 
         // 原子取走：取到就由這裡負責 Release；沒取到就是已經被 UnloadFogHooks 收走了。
         var maskSource = Interlocked.Exchange(ref fogMaskSource, null);
 
         // 路徑一定要用繪製執行緒抄好的那一份，不可以在 Task.Run 裡面重新去讀 AgentMap。
         var pendingBgPath = pendingFogBgPath;
+        var generation = Volatile.Read(ref fogGeneration);
 
         try {
             if (maskSource is null) {
@@ -126,14 +142,15 @@ public unsafe partial class MapRenderer
                 return;
             }
 
-            maskingTextureBytes = ReadMaskTextureBytes(maskSource.D3D11Texture2D);
+            var maskBytes = ReadMaskTextureBytes(maskSource.D3D11Texture2D);
 
-            if (maskingTextureBytes is null) {
+            if (maskBytes is null) {
                 Service.Log.Information("[Mappy] 霧貼圖：讀回探索遮罩貼圖失敗，這次略過更新。");
                 return;
             }
 
-            Task.Run(() => LoadFogTexture(pendingBgPath));
+            // 遮罩位元組以參數交棒而不放欄位：欄位版本會被下一輪在背景讀到一半時設成 null。
+            Task.Run(() => LoadFogTexture(pendingBgPath, maskBytes, generation));
         }
         finally {
             if (maskSource is not null) ComRelease(maskSource.D3D11Texture2D);
@@ -142,6 +159,9 @@ public unsafe partial class MapRenderer
 
     private void DrawFogOfWar()
     {
+        // 換下來的貼圖只能在繪製執行緒上釋放，所以這一行要在所有提早 return 之前。
+        DisposeRetiredFogTextures();
+
         if (!System.SystemConfig.ShowFogOfWar) return;
         if (CurrentDiscoveryFlags == AgentMap.Instance()->SelectedMapDiscoveryFlag) return;
         if (CurrentDiscoveryFlags == -1) return;
@@ -151,9 +171,12 @@ public unsafe partial class MapRenderer
 
         if (flagsChanged) {
             Service.Log.Debug("[Fog of War] Discovery Bits Changed, updating fog texture.");
+
+            // 世代與時間戳都要在旗標之前發佈：hook 看到旗標為真時才保證讀得到本輪的值。
+            Interlocked.Increment(ref fogGeneration);
+            Volatile.Write(ref maskRequestTimestamp, Stopwatch.GetTimestamp());
             requestUpdatedMaskingTexture = true;
-            textureLoadStopwatch.Restart();
-            fogTexture = null;
+            SwapFogTexture(null);
         }
 
         // 這裡是繪製（框架）執行緒，讀 AgentMap 是合法的。等待期間每幀更新一次，
@@ -169,9 +192,11 @@ public unsafe partial class MapRenderer
             PublishFogMaskSource();
         }
 
-        if (fogTexture is not null) {
+        var currentFogTexture = Volatile.Read(ref fogTexture);
+
+        if (currentFogTexture is not null) {
             ImGui.SetCursorPos(DrawPosition);
-            ImGui.Image(fogTexture.Handle, fogTexture.Size * Scale);
+            ImGui.Image(currentFogTexture.Handle, currentFogTexture.Size * Scale);
         }
         else {
             var defaultBackgroundTexture = Service.TextureProvider.GetFromGame($"{AgentMap.Instance()->SelectedMapBgPath.ToString()}.tex").GetWrapOrEmpty();
@@ -181,10 +206,10 @@ public unsafe partial class MapRenderer
         }
     }
 
-    private void LoadFogTexture(string vanillaBgPath)
+    private void LoadFogTexture(string vanillaBgPath, byte[] maskBytes, long generation)
     {
         // 卸載期不要再碰 Dalamud 的貼圖服務。這支整支都在執行緒集區上跑，
-        // 路徑已經是框架執行緒抄好的字串，所以這裡不再有任何原生指標可解。
+        // 路徑與遮罩位元組都是呼叫端交棒的快照，所以這裡不再有任何原生指標可解。
         if (Service.Framework.IsFrameworkUnloading) return;
 
         var bgFile = GetTexFile(vanillaBgPath);
@@ -196,9 +221,6 @@ public unsafe partial class MapRenderer
 
         // Load non-transparent background texture
         var backgroundBytes = bgFile.GetRgbaImageData();
-
-        // Load alpha mapping
-        if (maskingTextureBytes is null) return;
 
         var timer = Stopwatch.StartNew();
 
@@ -213,9 +235,9 @@ public unsafe partial class MapRenderer
             var pixelIndex = (x + y * 128) * 4;
             var targetPixel = (x + 2048 * y) * 4;
 
-            var redAmount = maskingTextureBytes[pixelIndex + 0] / 255.0f;
-            var greenAmount = maskingTextureBytes[pixelIndex + 1] / 255.0f;
-            var blueAmount = maskingTextureBytes[pixelIndex + 2] / 255.0f;
+            var redAmount = maskBytes[pixelIndex + 0] / 255.0f;
+            var greenAmount = maskBytes[pixelIndex + 1] / 255.0f;
+            var blueAmount = maskBytes[pixelIndex + 2] / 255.0f;
 
             var maxAlpha = Math.Max(redAmount, Math.Max(greenAmount, blueAmount));
             var alphaSum = (byte)(maxAlpha * 255);
@@ -232,10 +254,12 @@ public unsafe partial class MapRenderer
 
         Service.Log.Debug($"Fog of War Calculated in {timer.ElapsedMilliseconds} ms");
 
-        blockyFogBytes = backgroundBytes;
-        fogTexture = Service.TextureProvider.CreateFromRaw(RawImageSpecification.Rgba32(2048, 2048), backgroundBytes);
+        if (Volatile.Read(ref fogGeneration) != generation) return;
 
-        Task.Run(CleanupFogTexture);
+        SwapFogTexture(Service.TextureProvider.CreateFromRaw(RawImageSpecification.Rgba32(2048, 2048), backgroundBytes));
+
+        // 位元組陣列也以參數交棒：模糊那一輪就地改寫它，所以持有者必須只有一個。
+        Task.Run(() => CleanupFogTexture(backgroundBytes, generation));
     }
 
     /// <summary>
@@ -372,9 +396,28 @@ public unsafe partial class MapRenderer
         public nint D3D11Texture2D { get; } = d3D11Texture2D;
     }
 
-    private void CleanupFogTexture()
+    /// <summary>
+    /// 交棒 fogTexture。舊的那顆只推進佇列、不在這裡釋放 —— 呼叫端可能是背景執行緒。
+    /// </summary>
+    private void SwapFogTexture(IDalamudTextureWrap? next)
     {
-        if (blockyFogBytes is null) return;
+        var previous = Interlocked.Exchange(ref fogTexture, next);
+        if (previous is not null) retiredFogTextures.Enqueue(previous);
+    }
+
+    /// <summary>
+    /// 只能從繪製執行緒呼叫：排在這裡的貼圖最後一次被畫是在前一幀，那一幀已經送出去了。
+    /// </summary>
+    private void DisposeRetiredFogTextures()
+    {
+        while (retiredFogTextures.TryDequeue(out var retired)) {
+            retired.Dispose();
+        }
+    }
+
+    private void CleanupFogTexture(byte[] fogBytes, long generation)
+    {
+        if (Service.Framework.IsFrameworkUnloading) return;
 
         var timer = Stopwatch.StartNew();
 
@@ -388,14 +431,14 @@ public unsafe partial class MapRenderer
             var alphaAverage = 0.0f;
             var numAveraged = 0;
 
-            if (blockyFogBytes[pixelIndex + 3] == 255) continue;
+            if (fogBytes[pixelIndex + 3] == 255) continue;
 
             for (var xBlur = -blurRadius; xBlur < -blurRadius + blurRadius * 2; ++xBlur) {
                 var currentX = x + xBlur;
                 if (currentX is < 0 or >= 2048) continue;
                 var currentPixelIndex = (currentX + y * 2048) * 4;
 
-                alphaAverage += blockyFogBytes[currentPixelIndex + 3];
+                alphaAverage += fogBytes[currentPixelIndex + 3];
                 numAveraged++;
             }
 
@@ -405,16 +448,18 @@ public unsafe partial class MapRenderer
                 if (currentY is < 0 or >= 2048) continue;
                 var currentPixelIndex = (x + currentY * 2048) * 4;
 
-                alphaAverage += blockyFogBytes[currentPixelIndex + 3];
+                alphaAverage += fogBytes[currentPixelIndex + 3];
                 numAveraged++;
             }
 
             var newAlpha = (byte)(alphaAverage / numAveraged);
-            blockyFogBytes[pixelIndex + 3] = newAlpha;
+            fogBytes[pixelIndex + 3] = newAlpha;
         }
 
-        fogTexture = Service.TextureProvider.CreateFromRaw(RawImageSpecification.Rgba32(2048, 2048), blockyFogBytes);
-
         Service.Log.Debug($"Texture Cleanup completed in {timer.ElapsedMilliseconds} ms");
+
+        if (Volatile.Read(ref fogGeneration) != generation) return;
+
+        SwapFogTexture(Service.TextureProvider.CreateFromRaw(RawImageSpecification.Rgba32(2048, 2048), fogBytes));
     }
 }

@@ -90,7 +90,7 @@ public unsafe partial class MapRenderer : IDisposable
         }
         else {
             if (blendedPath != AgentMap.Instance()->SelectedMapBgPath.ToString()) {
-                fogTexture = null;
+                SwapFogTexture(null);
                 blendedTexture?.Dispose();
                 blendedTexture = LoadTexture();
                 blendedPath = AgentMap.Instance()->SelectedMapBgPath.ToString();
