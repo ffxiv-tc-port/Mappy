@@ -32,22 +32,7 @@ public unsafe partial class MapRenderer
 
     // AddonAreaMap 與 AtkComponentMap 在本 pin 的 FFXIVClientStructs 裡**都沒有具名成員**
     // （兩者都是空結構，只有 Size：0x7E0 與 0x420），所以下面兩個位移只能寫數字。
-    // 推導鏈記在這裡，遊戲改版時照著重驗一次：
-    //
-    //   MapComponentOffset = 0x430  ->  AtkComponentMap*
-    //     AddonAreaMap 的 vtable 在 0x1420DAF48，vf[49] = 0x14123B430。
-    //     它在 0x14123B4E9 用 AtkUnitBase::GetNodeById 取節點，再交給 0x140697B80 做
-    //     「型別檢查過的取元件」——那支會驗 AtkResNode.Type >= 1000、取
-    //     AtkComponentNode.Component（+0xB0），並比對 AtkUldComponentInfo.ComponentType
-    //     == 22（= ComponentType.Map），任何一關不過就回 null；結果同時寫進
-    //     +0x240（0x14123B4F9）與 +0x430（0x14123B5BC）。
-    //
-    //   MaskTextureOffset = 0x270  ->  Client::Graphics::Kernel::Texture*
-    //     AtkComponentMap::Ctor（由 CS 的特徵碼解出 0x140696880）在 0x140696956 把它清零；
-    //     0x1406972E0 先對舊值呼叫虛擬解構（vtbl+0x18），再用 Device::CreateTexture2D
-    //     （0x140208ED0，同樣由 CS 特徵碼解出）建一張 128x128、
-    //     TextureFormat.B8G8R8A8_UNORM（0x1450）的貼圖存回去（0x1406979A2）。
-    //     128x128 正好就是下面 LoadFogTexture 讀遮罩時用的尺寸。
+    // 位移推導見這次整理註解的 commit 訊息，遊戲改版時照著重驗一次。
     private const int MapComponentOffset = 0x430;
     private const int MaskTextureOffset = 0x270;
 
@@ -102,18 +87,6 @@ public unsafe partial class MapRenderer
     }
 
     // 🔴 這支跑在**遊戲自己的 "RenderThread" 上，不是 Dalamud 的框架執行緒**。
-    //    離線證據（台服 7.20 ffxiv_dx11.exe）：
-    //      1. 上面 [Signature] 的 AOB 以 E8 開頭，Dalamud 的 ScanText 會跟著 rel32 走
-    //         ⇒ 唯一收斂到 0x1402184F0（ImmediateContext::ProcessCommands）。
-    //      2. 全 .text 只有三個分支落在它身上，其中每幀都會走的那個是 0x14021934D，
-    //         位於函式 0x140219300 —— 那支正好是 RenderThread 的 vtable（0x142001338）第 5 格。
-    //      3. 0x140219300 的內容就是一個工作執行緒迴圈：
-    //         WaitForSingleObject(this+0x28, INFINITE)
-    //           -> ProcessCommands(Device->ImmediateContext, Device->RenderCommandBuffer,
-    //                              Device->RenderCommandBufferCount)
-    //           -> SetEvent(this+0x30) -> 回頭再等。
-    //      4. 那個 this 就是 Device+0x10（CS 的 Device.RenderThread），在 0x1402081CA 被填進去，
-    //         緊接著 0x1402081E5 用字面字串 "RenderThread" 去開一條 OS 執行緒。
     //    ⇒ 所以這裡**一律不解 addon／AgentMap 指標**，只消費框架執行緒發佈的快照。
     //      CopyResource／MapSubresource 仍然留在命令處理點（進 Original 之前、
     //      RenderThread 獨佔 immediate context 的那一刻），時序沒有改。
@@ -191,13 +164,8 @@ public unsafe partial class MapRenderer
                 pendingFogBgPath = $"{fogAgent->SelectedMapBgPath.ToString()}.tex";
             }
 
-            // addon 指標鏈只在這裡走 —— 這裡確定是框架執行緒：Dalamud 的
-            // SharedImmediateTexture.TryGetWrap() 會呼叫 ThreadSafety.AssertMainThread()，
-            // 而 GetWrapOrEmpty()／GetWrapOrDefault() 全都走它 ⇒ 每一個在 ImGui 裡畫遊戲貼圖的
-            // 外掛每幀都會踩到那個斷言。實機 26 份 dalamud*.log 裡 [ThreadSafety] 只有 2 筆，
-            // 兩筆都是 WrathCombo 在 Dispose 期間走 RunOnFrameworkThread 的卸載旁路，
-            // 繪製路徑一筆都沒有（那個旗標是 [ThreadStatic]，只在 Framework.HandleFrameworkUpdate
-            // 裡設過）。等待的那 200 毫秒內每幀重新發佈一次，hook 拿到的就是最新一幀的貼圖。
+            // addon 指標鏈只在這裡走 —— 這裡確定是框架執行緒。
+            // 等待的那 200 毫秒內每幀重新發佈一次，hook 拿到的就是最新一幀的貼圖。
             PublishFogMaskSource();
         }
 
