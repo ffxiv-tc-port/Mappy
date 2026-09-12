@@ -33,6 +33,11 @@ public unsafe partial class MapRenderer
     private bool requestUpdatedMaskingTexture;
     private byte[]? maskingTextureBytes;
 
+    // LoadFogTexture 是丟到執行緒集區上跑的（Task.Run），那裡不准解 AgentMap 這類原生指標。
+    // 所以背景貼圖路徑改成「趁還在繪製（框架）執行緒上先抄成字串」，背景只拿這份純資料快照。
+    // volatile：寫入端是繪製執行緒，讀取端是 ProcessCommands hook。
+    private volatile string? pendingFogBgPath;
+
     private byte[]? blockyFogBytes;
     private IDalamudTextureWrap? fogTexture;
     private int lastKnownDiscoveryFlags;
@@ -61,7 +66,15 @@ public unsafe partial class MapRenderer
                 requestUpdatedMaskingTexture = false;
                 textureLoadStopwatch.Stop();
 
-                Task.Run(LoadFogTexture);
+                // 路徑一定要用繪製執行緒抄好的那一份，不可以在 Task.Run 裡面重新去讀 AgentMap。
+                var pendingBgPath = pendingFogBgPath;
+
+                if (string.IsNullOrEmpty(pendingBgPath)) {
+                    Service.Log.Information("[Mappy] 霧貼圖：尚未從主執行緒取得地圖材質路徑，這次略過更新。");
+                }
+                else {
+                    Task.Run(() => LoadFogTexture(pendingBgPath));
+                }
             }
 
             immediateContextProcessCommandsHook!.Original(commands, bufferGroup, a3);
@@ -83,6 +96,15 @@ public unsafe partial class MapRenderer
             fogTexture = null;
         }
 
+        // 這裡是繪製（框架）執行緒，讀 AgentMap 是合法的。等待期間每幀更新一次，
+        // 讓 hook 真正送出背景工作時拿到的是最新一幀的路徑（等同原本在背景讀到的值）。
+        if (requestUpdatedMaskingTexture) {
+            var fogAgent = AgentMap.Instance();
+            if (fogAgent is not null) {
+                pendingFogBgPath = $"{fogAgent->SelectedMapBgPath.ToString()}.tex";
+            }
+        }
+
         if (fogTexture is not null) {
             ImGui.SetCursorPos(DrawPosition);
             ImGui.Image(fogTexture.Handle, fogTexture.Size * Scale);
@@ -95,9 +117,12 @@ public unsafe partial class MapRenderer
         }
     }
 
-    private void LoadFogTexture()
+    private void LoadFogTexture(string vanillaBgPath)
     {
-        var vanillaBgPath = $"{AgentMap.Instance()->SelectedMapBgPath.ToString()}.tex";
+        // 卸載期不要再碰 Dalamud 的貼圖服務。這支整支都在執行緒集區上跑，
+        // 路徑已經是框架執行緒抄好的字串，所以這裡不再有任何原生指標可解。
+        if (Service.Framework.IsFrameworkUnloading) return;
+
         var bgFile = GetTexFile(vanillaBgPath);
 
         if (bgFile is null) {
