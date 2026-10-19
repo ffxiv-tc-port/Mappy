@@ -1,10 +1,9 @@
 ﻿using System.Linq;
-using KamiLib.Classes;
 using Lumina.Excel.Sheets;
 
 namespace Mappy.Classes.Caches;
 
-public class CardRewardCache : Cache<uint, string>
+public class CardRewardCache : MappyCache<uint, string>
 {
     protected override string LoadValue(uint key)
     {

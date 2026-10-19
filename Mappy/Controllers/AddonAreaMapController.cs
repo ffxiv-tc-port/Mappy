@@ -63,7 +63,7 @@ public unsafe class AddonAreaMapController : IDisposable
 
         // Reset windows root node position on dispose
         var addonAreaMap = Service.GameGui.GetAddonByName<AddonAreaMap>("AreaMap");
-        if (addonAreaMap is not null) {
+        if (addonAreaMap is not null && addonAreaMap->RootNode is not null) {
             addonAreaMap->RootNode->SetPositionFloat(addonAreaMap->X, addonAreaMap->Y);
         }
     }
@@ -85,7 +85,7 @@ public unsafe class AddonAreaMapController : IDisposable
         showAreaMapHook = Service.Hooker.HookFromAddress<AddonAreaMap.Delegates.Show>(areaMap->VirtualTable->Show, OnAreaMapShow);
         hideAreaMapHook = Service.Hooker.HookFromAddress<AddonAreaMap.Delegates.Hide>(areaMap->VirtualTable->Hide, OnAreaMapHide);
 
-        if (Service.ClientState is { IsPvP: false }) {
+        if (!IntegrationsController.IsPvPBlocked()) {
             EnableIntegrations();
         }
     }
@@ -121,7 +121,10 @@ public unsafe class AddonAreaMapController : IDisposable
     {
         var addon = args.GetAddon<AddonAreaMap>();
 
-        if (Service.ClientState is { IsPvP: true }) {
+        // 開放 PvP 之後這條路徑會在 PvP 地圖上執行，RootNode 不再保證存在，必須先判空。
+        if (addon is null || addon->RootNode is null) return;
+
+        if (IntegrationsController.IsPvPBlocked()) {
             if (addon->IsOffscreen()) {
                 addon->RestorePosition();
             }

@@ -1,10 +1,9 @@
-﻿using KamiLib.Classes;
-using KamiLib.Extensions;
+﻿using KamiLib.Extensions;
 using Lumina.Excel.Sheets;
 
 namespace Mappy.Classes.Caches;
 
-public class AetheryteAethernetCache : Cache<uint, Aetheryte?>
+public class AetheryteAethernetCache : MappyCache<uint, Aetheryte?>
 {
     protected override Aetheryte? LoadValue(uint key)
     {

@@ -26,12 +26,17 @@ public static class System
     public static FlagController FlagController { get; set; }
     public static CommandManager CommandManager { get; set; }
     public static Teleporter Teleporter { get; set; }
+    public static LifestreamIpc LifestreamIpc { get; set; }
+    public static VnavmeshIpc VnavmeshIpc { get; set; }
+    public static MarkerIpcController MarkerIpcController { get; set; }
+    public static RouteOverlayController RouteOverlayController { get; set; }
 
     public static List<ModuleBase> Modules { get; set; } =
     [
         new TripleTriadModule(),
         new FateModule(),
         new StellarModule(),
+        new PublicContent(),
     ];
 
     public static TooltipCache TooltipCache { get; set; } = new();

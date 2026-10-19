@@ -1,9 +1,8 @@
-﻿using KamiLib.Classes;
-using Lumina.Excel.Sheets;
+﻿using Lumina.Excel.Sheets;
 
 namespace Mappy.Classes.Caches;
 
-public class GatheringPointNameCache : Cache<(uint dataId, string name), string>
+public class GatheringPointNameCache : MappyCache<(uint dataId, string name), string>
 {
     protected override string LoadValue((uint dataId, string name) key)
     {

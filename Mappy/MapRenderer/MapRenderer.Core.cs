@@ -26,9 +26,15 @@ public unsafe partial class MapRenderer : IDisposable
 
     private IDalamudTextureWrap? blendedTexture;
     private string blendedPath = string.Empty;
+    private uint lastMissingTextureMapId;
+
+    // 每幀都要拿地圖路徑字串，位元組沒變就沿用上一幀的字串。
+    private readonly Utf8PathCache mapPathCache = new();
+    private readonly Utf8PathCache mapBgPathCache = new();
 
     public MapRenderer()
     {
+        updateMaskingTextureAction = UpdateMaskingTextureIfRequested;
         LoadFogHooks();
     }
 
@@ -67,18 +73,33 @@ public unsafe partial class MapRenderer : IDisposable
 
     private void DrawBackgroundTexture()
     {
+        var agent = AgentMap.Instance();
+        if (agent is null) return;
+
+        // 開放 PvP 之後會畫到上游沒假設過的區域，這些地圖不保證有材質路徑。
+        // 取不到就不畫，並印一行 Information 級診斷（每張地圖只印一次）。
+        if (agent->SelectedMapPath.Length is 0 && agent->SelectedMapBgPath.Length is 0) {
+            if (lastMissingTextureMapId != agent->SelectedMapId) {
+                lastMissingTextureMapId = agent->SelectedMapId;
+                Service.Log.Information($"[Mappy] MapId {agent->SelectedMapId} 沒有可用的地圖材質路徑，略過底圖繪製。");
+            }
+
+            return;
+        }
+
         if (AgentMap.Instance()->SelectedMapBgPath.Length is 0) {
-            var texture = Service.TextureProvider.GetFromGame($"{AgentMap.Instance()->SelectedMapPath.ToString()}.tex").GetWrapOrEmpty();
+            var texture = Service.TextureProvider.GetFromGame(mapPathCache.Update(AgentMap.Instance()->SelectedMapPath.AsSpan()).TexPath).GetWrapOrEmpty();
 
             ImGui.SetCursorPos(DrawPosition);
             ImGui.Image(texture.Handle, texture.Size * Scale);
         }
         else {
-            if (blendedPath != AgentMap.Instance()->SelectedMapBgPath.ToString()) {
-                fogTexture = null;
+            var bgPath = mapBgPathCache.Update(AgentMap.Instance()->SelectedMapBgPath.AsSpan()).Text;
+            if (blendedPath != bgPath) {
+                SwapFogTexture(null);
                 blendedTexture?.Dispose();
                 blendedTexture = LoadTexture();
-                blendedPath = AgentMap.Instance()->SelectedMapBgPath.ToString();
+                blendedPath = bgPath;
             }
 
             if (blendedTexture is not null) {
@@ -99,6 +120,12 @@ public unsafe partial class MapRenderer : IDisposable
         if (bgFile is null || fgFile is null) {
             Service.Log.Warning("Failed to load map textures");
             return null;
+        }
+
+        // 遊戲內的地圖都是 2048 BC1：直接解成混好的 RGBA，省掉整張解碼的中間陣列（每次換圖約 130 MB → 16 MB）。
+        var blended = MapTextureBlend.TryBlendBc1(bgFile, fgFile);
+        if (blended is not null) {
+            return Service.TextureProvider.CreateFromRaw(RawImageSpecification.Rgba32(MapTextureBlend.Size, MapTextureBlend.Size), blended);
         }
 
         var backgroundBytes = bgFile.GetRgbaImageData();
@@ -131,15 +158,20 @@ public unsafe partial class MapRenderer : IDisposable
 
     private void DrawMapMarkers()
     {
+        DrawRouteOverlayLines();
         DrawStaticMapMarkers();
+        DrawMiniMapMarkers();
         DrawDynamicMarkers();
+        DrawSocialMarkers();
         DrawGameObjects();
         DrawGroupMembers();
         DrawTemporaryMarkers();
         DrawGatheringMarkers();
         DrawFieldMarkers();
+        DrawRouteOverlayPoints();
         DrawPlayer();
         DrawStaticTextMarkers();
         DrawFlag();
+        DrawIpcMarkers();
     }
 }

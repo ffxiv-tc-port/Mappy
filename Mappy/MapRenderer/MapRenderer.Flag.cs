@@ -11,13 +11,13 @@ public partial class MapRenderer
         if (AgentMap.Instance()->FlagMarkerCount is not 0 && AgentMap.Instance()->FlagMapMarkers[0].TerritoryId == AgentMap.Instance()->SelectedTerritoryId) {
             ref var flagMarker = ref AgentMap.Instance()->FlagMapMarkers[0];
 
-            DrawHelpers.DrawMapMarker(new MarkerInfo
-            {
-                Position = new Vector2(flagMarker.XFloat, flagMarker.YFloat) * Scale * DrawHelpers.GetMapScaleFactor() + DrawHelpers.GetCombinedOffsetVector() * Scale,
-                IconId = flagMarker.MapMarker.IconId,
-                Offset = DrawPosition,
-                Scale = Scale,
-            });
+            var markerInfo = sharedMarker;
+            markerInfo.ResetForReuse(
+                new Vector2(flagMarker.XFloat, flagMarker.YFloat) * Scale * DrawHelpers.GetMapScaleFactor() + DrawHelpers.GetCombinedOffsetVector() * Scale,
+                DrawPosition,
+                Scale);
+            markerInfo.IconId = flagMarker.MapMarker.IconId;
+            DrawHelpers.DrawMapMarker(markerInfo);
         }
     }
 }

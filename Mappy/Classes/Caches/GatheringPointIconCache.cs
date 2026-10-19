@@ -1,10 +1,9 @@
 ﻿using System;
-using KamiLib.Classes;
 using Lumina.Excel.Sheets;
 
 namespace Mappy.Classes.Caches;
 
-public class GatheringPointIconCache : Cache<uint, uint>
+public class GatheringPointIconCache : MappyCache<uint, uint>
 {
     protected override uint LoadValue(uint key)
     {

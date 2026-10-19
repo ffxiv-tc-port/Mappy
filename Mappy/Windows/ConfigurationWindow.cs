@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Numerics;
@@ -12,6 +13,7 @@ using KamiLib.CommandManager;
 using KamiLib.Extensions;
 using KamiLib.Window;
 using Mappy.Classes;
+using Mappy.Controllers;
 using Mappy.Data;
 
 namespace Mappy.Windows;
@@ -23,6 +25,8 @@ public class ConfigurationWindow : Window
         new MapFunctionsTab(),
         new StyleOptionsTab(),
         new PlayerOptionsTab(),
+        new IpcMarkerTab(),
+        new RouteOverlayTab(),
     ]);
 
     public ConfigurationWindow() : base("Mappy－設定", new Vector2(500.0f, 580.0f))
@@ -38,6 +42,9 @@ public class ConfigurationWindow : Window
 
 public class MapFunctionsTab : ITabItem
 {
+    // 與 Enum.GetValues(typeof(CenterTarget)) 同序；描述仍每幀走 GetDescription（翻譯可在執行期切換）。
+    private static readonly CenterTarget[] CenterTargets = Enum.GetValues<CenterTarget>();
+
     public string Name => "地圖功能";
 
     public bool Disabled => false;
@@ -98,7 +105,43 @@ public class MapFunctionsTab : ITabItem
 
             ImGuiHelpers.ScaledDummy(5.0f);
 
+            configChanged |= ImGuiTweaks.Checkbox("顯示小地圖標記", ref System.SystemConfig.ShowMiniMapMarkers,
+                "遊戲另外有一份只給小地圖用的標記，其他插件（例如 EurekaHelper）也會往裡面寫。\n" +
+                "開啟後這些標記也會畫到大地圖上，與大地圖既有標記重覆的會自動去除。");
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
+            configChanged |= ImGuiTweaks.Checkbox("地圖右鍵「移動到這裡」", ref System.SystemConfig.EnableTravelToHere,
+                "在地圖上按右鍵時多出「移動到這裡」與「停止移動」兩個項目。\n" +
+                "跨區時會自動傳送到最近的乙太之光，再由 vnavmesh 走過去。\n" +
+                "需要 Lifestream 與 vnavmesh 兩個插件；缺哪個會在選單上直接寫出來。");
+
+            using (ImRaii.Disabled(!System.SystemConfig.EnableTravelToHere)) {
+                using (ImRaii.PushIndent()) {
+                    configChanged |= MappyGuiTweaks.Checkbox("移動時使用飛行坐騎", ref System.SystemConfig.TravelUseFlying,
+                        "允許 Lifestream 上坐騎飛過去。\n" +
+                        "不能飛的區域（或風脈泉還沒集滿）會自動改成用走的。");
+                }
+            }
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
             configChanged |= ImGui.Checkbox("偵錯模式", ref System.SystemConfig.DebugMode);
+        }
+
+        ImGuiTweaks.Header("工具提示");
+        using (ImRaii.PushIndent()) {
+            configChanged |= ImGui.DragFloat("字體大小##tooltip", ref System.SystemConfig.TooltipTextScale, 0.01f, 0.50f, 3.00f);
+            configChanged |= ImGui.DragFloat("不透明度##tooltip", ref System.SystemConfig.TooltipOpacity, 0.01f, 0.05f, 1.00f);
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+            configChanged |= ImGuiTweaks.Checkbox("跟隨地圖淡化", ref System.SystemConfig.TooltipFollowsMapFade,
+                "工具提示畫在地圖視窗裡面，地圖淡化時它也會跟著一起變淡。\n" +
+                "關閉這個選項之後，工具提示只依照上面的「不透明度」顯示，不受地圖淡化影響。");
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("說明文字顏色", ref System.SystemConfig.TooltipSecondaryTextColor, KnownColor.LightGray.Vector());
+            ImGuiComponents.HelpMarker("滑鼠移到地圖標記上時，提示框第一行名稱以下的文字（例如 F.A.T.E. 的剩餘時間與進度）。");
         }
 
         ImGuiTweaks.Header("工具列");
@@ -131,11 +174,11 @@ public class MapFunctionsTab : ITabItem
         var enumObject = System.SystemConfig.CenterOnOpen;
         var firstLine = true;
 
-        foreach (Enum enumValue in Enum.GetValues(enumObject.GetType())) {
+        foreach (var enumValue in CenterTargets) {
             if (!firstLine) ImGui.SameLine();
 
-            if (ImGui.RadioButton(enumValue.GetDescription(), enumValue.Equals(enumObject))) {
-                System.SystemConfig.CenterOnOpen = (CenterTarget)enumValue;
+            if (ImGui.RadioButton(enumValue.GetDescription(), enumValue == enumObject)) {
+                System.SystemConfig.CenterOnOpen = enumValue;
                 SystemConfig.Save();
             }
 
@@ -149,6 +192,10 @@ public class MapFunctionsTab : ITabItem
 
 public class StyleOptionsTab : ITabItem
 {
+    // 與 Enum.GetValues(typeof(FadeMode)) 同序；按鈕 ID 沿用列舉名稱。
+    private static readonly FadeMode[] FadeModes = Enum.GetValues<FadeMode>();
+    private static readonly string[] FadeModeIds = Array.ConvertAll(FadeModes, mode => mode.ToString());
+
     public string Name => "外觀";
 
     public bool Disabled => false;
@@ -171,6 +218,16 @@ public class StyleOptionsTab : ITabItem
             configChanged |= ImGui.Checkbox("隨遊戲介面隱藏", ref System.SystemConfig.HideWithGameGui);
             configChanged |= ImGui.Checkbox("切換區域時隱藏", ref System.SystemConfig.HideBetweenAreas);
             configChanged |= ImGui.Checkbox("戰鬥中隱藏", ref System.SystemConfig.HideInCombat);
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
+            if (ImGuiTweaks.Checkbox("PvP 中允許開啟地圖", ref System.SystemConfig.AllowInPvP,
+                    "原版行為是在 PvP 區域（紛爭前線、機工樂園、水晶衝突等）強制關閉 Mappy，改用遊戲原生地圖。\n" +
+                    "開啟本選項後 Mappy 在 PvP 中照常運作。\n" +
+                    "副本／任務中本來就沒有限制，不受此選項影響。")) {
+                configChanged = true;
+                System.IntegrationsController.ApplyPvPPolicy();
+            }
         }
 
         ImGuiTweaks.Header("視窗標題");
@@ -195,17 +252,18 @@ public class StyleOptionsTab : ITabItem
                 var value = System.SystemConfig.FadeMode;
                 ImGui.TableNextColumn();
 
-                foreach (Enum enumValue in Enum.GetValues(value.GetType())) {
+                for (var index = 0; index < FadeModes.Length; index++) {
+                    var enumValue = FadeModes[index];
                     var isFlagSet = value.HasFlag(enumValue);
-                    if (ImGuiComponents.ToggleButton(enumValue.ToString(), ref isFlagSet)) {
-                        var sourceValue = Convert.ToInt32(value);
-                        var targetValue = Convert.ToInt32(enumValue);
+                    if (ImGuiComponents.ToggleButton(FadeModeIds[index], ref isFlagSet)) {
+                        var sourceValue = (int)value;
+                        var targetValue = (int)enumValue;
 
                         if (value.HasFlag(enumValue)) {
-                            System.SystemConfig.FadeMode = (FadeMode)Enum.ToObject(value.GetType(), sourceValue & ~targetValue);
+                            System.SystemConfig.FadeMode = (FadeMode)(sourceValue & ~targetValue);
                         }
                         else {
-                            System.SystemConfig.FadeMode = (FadeMode)Enum.ToObject(value.GetType(), sourceValue | targetValue);
+                            System.SystemConfig.FadeMode = (FadeMode)(sourceValue | targetValue);
                         }
 
                         configChanged = true;
@@ -282,8 +340,220 @@ public class PlayerOptionsTab : ITabItem
             configChanged |= ImGui.DragFloat("玩家圖示大小", ref System.SystemConfig.PlayerIconScale, 0.05f);
         }
 
+        ImGuiTweaks.Header("好友與部隊標示");
+        using (ImRaii.PushIndent()) {
+            configChanged |= ImGuiTweaks.Checkbox("標示好友與同部隊成員", ref System.SystemConfig.ShowSocialMarkers,
+                "在其他玩家的圖示底下墊一個色點。\n" +
+                "小隊與團隊成員不受此選項影響，它們一直都是用另外的圖示顯示。");
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("好友顏色", ref System.SystemConfig.FriendMarkerColor,
+                KnownColor.Gold.Vector() with { W = 0.85f });
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("同部隊顏色", ref System.SystemConfig.FreeCompanyMarkerColor,
+                KnownColor.MediumSeaGreen.Vector() with { W = 0.85f });
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("一般玩家顏色", ref System.SystemConfig.OtherPlayerMarkerColor,
+                KnownColor.Gray.Vector() with { W = 0.25f });
+            configChanged |= ImGuiTweaks.ColorEditWithDefault("色點外框顏色", ref System.SystemConfig.SocialMarkerOutlineColor,
+                KnownColor.Black.Vector() with { W = 0.60f });
+
+            ImGuiHelpers.ScaledDummy(5.0f);
+            configChanged |= ImGui.DragFloat("色點大小", ref System.SystemConfig.SocialMarkerRadius, 0.1f, 2.0f, 30.0f);
+        }
+
         if (configChanged) {
             SystemConfig.Save();
+        }
+    }
+}
+
+public class IpcMarkerTab : ITabItem
+{
+    public string Name => "插件標記";
+
+    public bool Disabled => false;
+
+    public void Draw()
+    {
+        ImGuiTweaks.Header("其他插件放上來的標記");
+
+        using (ImRaii.PushIndent()) {
+            var sources = System.MarkerIpcController.GetSourceSummary();
+
+            if (sources.Count is 0) {
+                using var textColor = ImRaii.PushColor(ImGuiCol.Text, KnownColor.Gray.Vector());
+
+                ImGui.TextWrapped("目前沒有任何插件把標記放到 Mappy 上。\n" +
+                                  "支援這項功能的插件載入之後，來源會自動出現在這裡。");
+                return;
+            }
+
+            var configChanged = false;
+
+            foreach (var (source, count) in sources.OrderBy(entry => entry.Source)) {
+                var enabled = !System.SystemConfig.IpcSourceEnabled.TryGetValue(source, out var value) || value;
+
+                if (ImGui.Checkbox($"{source}##ipcSource{source}", ref enabled)) {
+                    System.SystemConfig.IpcSourceEnabled[source] = enabled;
+                    configChanged = true;
+                }
+
+                ImGui.SameLine();
+                ImGuiTweaks.TextColoredUnformatted(KnownColor.Gray.Vector(), $"（{count} 個標記）");
+            }
+
+            if (configChanged) {
+                SystemConfig.Save();
+            }
+        }
+    }
+}
+
+public class RouteOverlayTab : ITabItem
+{
+    private static readonly Vector4 DefaultVnavmeshPathColor = KnownColor.Cyan.Vector() with { W = 0.88f };
+
+    private readonly List<(string Source, int Count)> sessionSources = [];
+    private readonly List<string> rowSources = [];
+
+    public string Name => "疊加層";
+
+    public bool Disabled => false;
+
+    public void Draw()
+    {
+        var configChanged = false;
+
+        ImGuiTweaks.Header("路線疊加層");
+        using (ImRaii.PushIndent()) {
+            configChanged |= ImGuiTweaks.Checkbox("顯示路線疊加層", ref System.SystemConfig.ShowRouteOverlay,
+                "總開關，與地圖工具列上的「路線疊加層」按鈕是同一個設定。\n" +
+                "線畫在地圖標記底下、點畫在角色圖示底下，不會擋住圖示的點擊。");
+        }
+
+        ImGuiTweaks.Header("來源");
+        using (ImRaii.PushIndent()) {
+            configChanged |= DrawVnavmeshRow();
+            configChanged |= DrawIpcSourceRows();
+        }
+
+        if (configChanged) {
+            SystemConfig.Save();
+        }
+    }
+
+    private bool DrawIpcSourceRows()
+    {
+        System.RouteOverlayController.Store.CopySummary(Environment.TickCount64, sessionSources);
+
+        rowSources.Clear();
+        foreach (var (source, _) in sessionSources) {
+            rowSources.Add(source);
+        }
+
+        foreach (var source in System.SystemConfig.RouteOverlaySources.Keys) {
+            if (!rowSources.Contains(source)) rowSources.Add(source);
+        }
+
+        if (rowSources.Count is 0) {
+            using var textColor = ImRaii.PushColor(ImGuiCol.Text, KnownColor.Gray.Vector());
+            ImGui.TextWrapped("目前沒有其他插件把路線或節點送到 Mappy。\n支援這項功能的插件送過一次之後，來源會出現在這裡。");
+            return false;
+        }
+
+        rowSources.Sort(StringComparer.OrdinalIgnoreCase);
+
+        var changed = false;
+        foreach (var source in rowSources) {
+            var enabled = !System.SystemConfig.IpcSourceEnabled.TryGetValue(source, out var value) || value;
+
+            if (ImGui.Checkbox($"{source}##routeOverlaySource{source}", ref enabled)) {
+                System.SystemConfig.IpcSourceEnabled[source] = enabled;
+                changed = true;
+            }
+
+            ImGui.SameLine();
+            DrawIpcSourceStatus(source);
+        }
+
+        return changed;
+    }
+
+    private void DrawIpcSourceStatus(string source)
+    {
+        var sessionCount = -1;
+        foreach (var (name, count) in sessionSources) {
+            if (name == source) sessionCount = count;
+        }
+
+        string text;
+        Vector4 color;
+        string tooltip;
+
+        if (sessionCount >= 0) {
+            text = $"{sessionCount} 筆";
+            color = sessionCount is 0 ? KnownColor.Gray.Vector() : KnownColor.White.Vector();
+            tooltip = "這個插件目前放在 Mappy 上、還沒過期的路線與節點筆數。\n勾選與「插件標記」分頁的同名來源是同一個開關。";
+        }
+        else if (!System.RouteOverlayController.TryGetPlugin(source, out var plugin)) {
+            text = "未安裝";
+            color = KnownColor.Gray.Vector();
+            tooltip = $"找不到內部名稱是「{source}」的插件：可能沒有安裝，或來源名稱與插件名稱不同。\n這次遊戲啟動以來它還沒有送過路線或節點。";
+        }
+        else if (!plugin.IsLoaded) {
+            text = "未載入";
+            color = KnownColor.Orange.Vector();
+            tooltip = $"插件「{plugin.Name}」已安裝但沒有載入（停用中或載入失敗），所以沒有送路線或節點過來。";
+        }
+        else {
+            text = "還沒送過";
+            color = KnownColor.Gray.Vector();
+            tooltip = $"插件「{plugin.Name}」已載入，但這次遊戲啟動以來還沒有送過路線或節點。";
+        }
+
+        ImGuiTweaks.TextColoredUnformatted(color, text);
+        if (ImGui.IsItemHovered()) {
+            ImGui.SetTooltip(tooltip);
+        }
+    }
+
+    private static bool DrawVnavmeshRow()
+    {
+        var changed = ImGui.Checkbox("vnavmesh 目前路徑##routeOverlayVnav", ref System.SystemConfig.ShowVnavmeshPath);
+
+        ImGui.SameLine();
+        ImGui.ColorEdit4("##routeOverlayVnavColor", ref System.SystemConfig.VnavmeshPathColor, ImGuiColorEditFlags.AlphaPreviewHalf | ImGuiColorEditFlags.NoInputs);
+        changed |= ImGui.IsItemDeactivatedAfterEdit();
+
+        ImGui.SameLine();
+        if (ImGui.Button("預設##routeOverlayVnavColor")) {
+            System.SystemConfig.VnavmeshPathColor = DefaultVnavmeshPathColor;
+            changed = true;
+        }
+
+        ImGui.SameLine();
+        DrawVnavmeshStatus();
+
+        return changed;
+    }
+
+    private static void DrawVnavmeshStatus()
+    {
+        var controller = System.RouteOverlayController;
+
+        var (text, color, tooltip) = controller.VnavStatus switch
+        {
+            VnavPathStatus.NotInstalled => ("vnavmesh 未安裝", KnownColor.Gray.Vector(), "沒有安裝 vnavmesh，這一列不會畫任何東西。"),
+            VnavPathStatus.NotLoaded => ("vnavmesh 未載入", KnownColor.Orange.Vector(), "vnavmesh 已安裝但沒有載入（停用中或載入失敗），這一列不會畫任何東西。"),
+            VnavPathStatus.ReadFailed => ("?", KnownColor.Orange.Vector(), "向 vnavmesh 讀取路徑失敗（版本太舊或沒有回應），原因記在 dalamud.log。"),
+            VnavPathStatus.Ok when controller.VnavRemainingCount is 0 => ("沒有在走", KnownColor.Gray.Vector(), "vnavmesh 目前沒有要走的路徑。"),
+            VnavPathStatus.Ok => ($"剩 {controller.VnavRemainingCount} 點", KnownColor.White.Vector(), "vnavmesh 目前路徑還沒走到的點數。不知道是哪個插件叫 vnavmesh 走的。"),
+            _ => ("?", KnownColor.Gray.Vector(), "只在地圖開著、而且看的是目前所在區域時才向 vnavmesh 讀取路徑（疊加層或這一列關著時也不讀），現在沒有讀取，所以不知道。"),
+        };
+
+        ImGuiTweaks.TextColoredUnformatted(color, text);
+        if (ImGui.IsItemHovered()) {
+            ImGui.SetTooltip(tooltip);
         }
     }
 }

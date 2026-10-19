@@ -14,7 +14,7 @@ public partial class MapRenderer
     {
         if (AgentMap.Instance()->SelectedMapId != AgentMap.Instance()->CurrentMapId) return;
 
-        if (Service.ClientState.LocalPlayer is { } localPlayer) {
+        if (Service.ObjectTable.LocalPlayer is { } localPlayer) {
             var position = ImGui.GetWindowPos() +
                            DrawPosition +
                            (localPlayer.GetMapPosition() -
@@ -82,7 +82,7 @@ public partial class MapRenderer
     private void DrawPlayerIcon(Vector2 position)
     {
         if (!System.SystemConfig.ShowPlayerIcon) return;
-        if (Service.ClientState is not { LocalPlayer: { } player }) return;
+        if (Service.ObjectTable is not { LocalPlayer: { } player }) return;
 
         var texture = Service.TextureProvider.GetFromGameIcon(60443).GetWrapOrEmpty();
         var angle = -player.Rotation + MathF.PI / 2.0f;
@@ -90,24 +90,20 @@ public partial class MapRenderer
         var scale = System.SystemConfig.ScaleWithZoom ? Scale : 1.0f;
         scale *= System.SystemConfig.PlayerIconScale;
 
-        var vectors = GetRotationVectors(angle, position, texture.Size / 2.0f * scale);
+        GetRotationVectors(angle, position, texture.Size / 2.0f * scale, out var p1, out var p2, out var p3, out var p4);
 
-        ImGui.GetWindowDrawList().AddImageQuad(texture.Handle, vectors[0], vectors[1], vectors[2], vectors[3]);
+        ImGui.GetWindowDrawList().AddImageQuad(texture.Handle, p1, p2, p3, p4);
     }
 
-    private static Vector2[] GetRotationVectors(float angle, Vector2 center, Vector2 size)
+    private static void GetRotationVectors(float angle, Vector2 center, Vector2 size, out Vector2 p1, out Vector2 p2, out Vector2 p3, out Vector2 p4)
     {
         var cosA = MathF.Cos(angle + 0.5f * MathF.PI);
         var sinA = MathF.Sin(angle + 0.5f * MathF.PI);
 
-        Vector2[] vectors =
-        [
-            center + ImRotate(new Vector2(-size.X * 0.5f, -size.Y * 0.5f), cosA, sinA),
-            center + ImRotate(new Vector2(+size.X * 0.5f, -size.Y * 0.5f), cosA, sinA),
-            center + ImRotate(new Vector2(+size.X * 0.5f, +size.Y * 0.5f), cosA, sinA),
-            center + ImRotate(new Vector2(-size.X * 0.5f, +size.Y * 0.5f), cosA, sinA),
-        ];
-        return vectors;
+        p1 = center + ImRotate(new Vector2(-size.X * 0.5f, -size.Y * 0.5f), cosA, sinA);
+        p2 = center + ImRotate(new Vector2(+size.X * 0.5f, -size.Y * 0.5f), cosA, sinA);
+        p3 = center + ImRotate(new Vector2(+size.X * 0.5f, +size.Y * 0.5f), cosA, sinA);
+        p4 = center + ImRotate(new Vector2(-size.X * 0.5f, +size.Y * 0.5f), cosA, sinA);
     }
 
     private static Vector2 ImRotate(Vector2 v, float cosA, float sinA) => new(v.X * cosA - v.Y * sinA, v.X * sinA + v.Y * cosA);

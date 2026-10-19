@@ -51,4 +51,7 @@ public class Service
 
     [PluginService]
     public static IAddonLifecycle AddonLifecycle { get; set; }
+
+    [PluginService]
+    public static IChatGui ChatGui { get; set; }
 }

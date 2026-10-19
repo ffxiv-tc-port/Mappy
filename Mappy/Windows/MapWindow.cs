@@ -31,10 +31,13 @@ public class MapWindow : Window
     private uint lastMapId;
     private uint lastAreaPlaceNameId;
     private uint lastSubAreaPlaceNameId;
+    private uint lastMissingMapId;
+    private bool territoryInfoMissingLogged;
 
     private readonly MapToolbar mapToolbar = new();
     private readonly MapCoordinateBar mapCoordinateBar = new();
     private readonly MapContextMenu mapContextMenu = new();
+    private readonly DeferredSaveGate boundsSaveGate = new();
 
     public MapWindow() : base("###MappyMapWindow", new Vector2(400.0f, 250.0f))
     {
@@ -52,7 +55,8 @@ public class MapWindow : Window
             IsOpen = true;
         }
 
-        if (Service.ClientState is { IsLoggedIn: false } or { IsPvP: true }) IsOpen = false;
+        if (Service.ClientState is { IsLoggedIn: false }) IsOpen = false;
+        if (IntegrationsController.IsPvPBlocked()) IsOpen = false;
     }
 
     public override void OnOpen()
@@ -69,7 +73,7 @@ public class MapWindow : Window
         }
 
         switch (System.SystemConfig.CenterOnOpen) {
-            case CenterTarget.Player when Service.ClientState.LocalPlayer is { } localPlayer:
+            case CenterTarget.Player when Service.ObjectTable.LocalPlayer is { } localPlayer:
                 System.MapRenderer.CenterOnGameObject(localPlayer);
                 break;
 
@@ -168,43 +172,69 @@ public class MapWindow : Window
 
     private unsafe void UpdateTitle()
     {
-        var mapChanged = lastMapId != AgentMap.Instance()->SelectedMapId;
-        var areaChanged = lastAreaPlaceNameId != TerritoryInfo.Instance()->AreaPlaceNameId;
-        var subAreaChanged = lastSubAreaPlaceNameId != TerritoryInfo.Instance()->SubAreaPlaceNameId;
+        // 建構子（插件載入當下）也會走到：AgentModule 還沒建好或 TerritoryInfo 位址解不出時不改標題，不讓插件載入失敗。
+        var agentMap = AgentMap.Instance();
+        if (agentMap == null) return;
+
+        if (TerritoryInfo.Addresses.Instance.Value == 0) {
+            if (!territoryInfoMissingLogged) {
+                territoryInfoMissingLogged = true;
+                Service.Log.Warning("[Mappy] 找不到 TerritoryInfo 的位址（遊戲改版後特徵碼對不上），地圖視窗標題不顯示地區名稱，其餘功能照常。");
+            }
+            return;
+        }
+
+        var territoryInfo = TerritoryInfo.Instance();
+
+        var mapChanged = lastMapId != agentMap->SelectedMapId;
+        var areaChanged = lastAreaPlaceNameId != territoryInfo->AreaPlaceNameId;
+        var subAreaChanged = lastSubAreaPlaceNameId != territoryInfo->SubAreaPlaceNameId;
         var locationChanged = mapChanged || areaChanged || subAreaChanged;
 
         if (!locationChanged) return;
         var subLocationString = string.Empty;
-        var mapData = Service.DataManager.GetExcelSheet<Map>().GetRow(AgentMap.Instance()->SelectedMapId);
 
-        if (System.SystemConfig.ShowRegionLabel) {
-            var mapRegionName = mapData.PlaceNameRegion.Value.Name.ExtractText();
-            subLocationString += $" - {mapRegionName}";
+        // 台服的 Map 表不保證涵蓋所有區域（PvP／新內容尤其），GetRow 對缺列會擲例外。
+        // 查不到就不加標題文字，並印一行 Information 級診斷。
+        var selectedMapId = agentMap->SelectedMapId;
+        var mapData = Service.DataManager.GetExcelSheet<Map>().GetRowOrDefault(selectedMapId);
+
+        if (mapData is null) {
+            if (lastMissingMapId != selectedMapId) {
+                lastMissingMapId = selectedMapId;
+                Service.Log.Information($"[Mappy] Map 表中找不到 MapId {selectedMapId}，本次不套用地圖標題文字。");
+            }
         }
+        else {
+            if (System.SystemConfig.ShowRegionLabel) {
+                var mapRegionName = mapData.Value.PlaceNameRegion.ValueNullable?.Name.ExtractText() ?? string.Empty;
+                if (mapRegionName != string.Empty) subLocationString += $" - {mapRegionName}";
+            }
 
-        if (System.SystemConfig.ShowMapLabel) {
-            var mapName = mapData.PlaceName.Value.Name.ExtractText();
-            subLocationString += $" - {mapName}";
+            if (System.SystemConfig.ShowMapLabel) {
+                var mapName = mapData.Value.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
+                if (mapName != string.Empty) subLocationString += $" - {mapName}";
+            }
         }
 
         // Don't show specific locations if we aren't there.
-        if (AgentMap.Instance()->SelectedMapId == AgentMap.Instance()->CurrentMapId) {
-            if (TerritoryInfo.Instance()->AreaPlaceNameId is not 0 && System.SystemConfig.ShowAreaLabel) {
-                var areaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRow(TerritoryInfo.Instance()->AreaPlaceNameId);
-                subLocationString += $" - {areaLabel.Name}";
+        if (agentMap->SelectedMapId == agentMap->CurrentMapId) {
+            if (territoryInfo->AreaPlaceNameId is not 0 && System.SystemConfig.ShowAreaLabel) {
+                var areaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRowOrDefault(territoryInfo->AreaPlaceNameId);
+                if (areaLabel is not null) subLocationString += $" - {areaLabel.Value.Name}";
             }
 
-            if (TerritoryInfo.Instance()->SubAreaPlaceNameId is not 0 && System.SystemConfig.ShowSubAreaLabel) {
-                var subAreaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRow(TerritoryInfo.Instance()->SubAreaPlaceNameId);
-                subLocationString += $" - {subAreaLabel.Name}";
+            if (territoryInfo->SubAreaPlaceNameId is not 0 && System.SystemConfig.ShowSubAreaLabel) {
+                var subAreaLabel = Service.DataManager.GetExcelSheet<PlaceName>().GetRowOrDefault(territoryInfo->SubAreaPlaceNameId);
+                if (subAreaLabel is not null) subLocationString += $" - {subAreaLabel.Value.Name}";
             }
         }
 
         WindowName = $"Mappy 地圖{subLocationString}###MappyMapWindow";
 
-        lastMapId = AgentMap.Instance()->SelectedMapId;
-        lastAreaPlaceNameId = TerritoryInfo.Instance()->AreaPlaceNameId;
-        lastSubAreaPlaceNameId = TerritoryInfo.Instance()->SubAreaPlaceNameId;
+        lastMapId = agentMap->SelectedMapId;
+        lastAreaPlaceNameId = territoryInfo->AreaPlaceNameId;
+        lastSubAreaPlaceNameId = territoryInfo->SubAreaPlaceNameId;
     }
 
     public void RefreshTitle()
@@ -273,7 +303,7 @@ public class MapWindow : Window
             AgentMap.Instance()->Hide();
         }
 
-        if (System.SystemConfig.FollowPlayer && Service.ClientState is { LocalPlayer: { } localPlayer }) {
+        if (System.SystemConfig.FollowPlayer && Service.ObjectTable is { LocalPlayer: { } localPlayer }) {
             System.MapRenderer.CenterOnGameObject(localPlayer);
         }
 
@@ -288,6 +318,7 @@ public class MapWindow : Window
         var systemConfig = System.SystemConfig;
         var windowPosition = ImGui.GetWindowPos();
         var windowSize = ImGui.GetWindowSize();
+        var boundsChanged = false;
 
         if (!IsFocused) {
             if (windowPosition != systemConfig.WindowPosition) {
@@ -302,13 +333,18 @@ public class MapWindow : Window
             // If focused
             if (systemConfig.WindowPosition != windowPosition) {
                 systemConfig.WindowPosition = windowPosition;
-                SystemConfig.Save();
+                boundsChanged = true;
             }
 
             if (systemConfig.WindowSize != windowSize) {
                 systemConfig.WindowSize = windowSize;
-                SystemConfig.Save();
+                boundsChanged = true;
             }
+        }
+
+        // 拖曳／縮放中每幀都在變，只在放開滑鼠那一幀存一次（拖到一半失去焦點也照樣在放開後存）。
+        if (boundsSaveGate.Observe(boundsChanged, ImGui.IsMouseDown(ImGuiMouseButton.Left))) {
+            SystemConfig.Save();
         }
     }
 
@@ -472,7 +508,7 @@ public class MapWindow : Window
             ActivationPath = "/center/player",
             Delegate = _ =>
             {
-                if (Service.ClientState.LocalPlayer is { } localPlayer) {
+                if (Service.ObjectTable.LocalPlayer is { } localPlayer) {
                     System.MapRenderer.CenterOnGameObject(localPlayer);
                 }
             },

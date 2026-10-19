@@ -1,79 +1,38 @@
 # Mappy
-[![Download count](https://img.shields.io/endpoint?url=https://qzysathwfhebdai6xgauhz4q7m0mzmrf.lambda-url.us-east-1.on.aws/Mappy)](https://github.com/MidoriKami/Mappy)
 
-Mappy is a XivLauncher/Dalamud plugin.
+[Mappy](https://github.com/MidoriKami/Mappy) 的台服移植版。完整取代遊戲內建世界地圖的插件，以 ImGui 疊加層繪製，並提供大量客製化選項。
 
-Mappy is a total replacement plugin for the ingame main map.
-Mappy offers a lot of customization options such as enabling and disabling specific icons, configuring colors of tooltips, or displayed areas.
+## 主要功能
 
-Integrates seamlessly into the games built in functions, for example pressing `m` will open Mappy instead of the built in game map.
+- **地圖視窗**：取代原生地圖介面（含按 `M` 鍵開啟），可搭配 Dalamud 多螢幕模式拖到其他螢幕。
+- **地圖右鍵選單**：放置旗標等操作；「移動到這裡」會插旗並交給 Lifestream 傳送、上坐騎飛過去，可隨時停止。
+- **地圖標記**：好友與同公會成員分色顯示；新月島與博茲雅的緊急遭遇戰標記，滑鼠移上去顯示名稱、階段、剩餘時間與參加人數；標記提示框可調字體大小與不透明度。
+- **搜尋視窗**：搜尋地圖、乙太水晶、興趣點、乙太傳送網，選取興趣點會直接置中地圖。
+- **設定視窗**：可調整縮放方式（線性／自動）、圖示大小與顏色、置中條件（旗標／採集／任務）、文字標籤顯示層級、戰爭迷霧、小地圖標記同步、工具列與座標列顯示時機、視窗鎖定與淡出等。
+- **圖示設定**：逐一調整地圖上每種圖示是否顯示、大小、顏色，會隨探索進度自動收錄新圖示。
+- **任務清單視窗**：列出目前已接與可接任務，點擊項目可置中地圖。
+- **FATE 清單視窗**：列出當前區域全部 FATE，即將結束的會變色提示，有經驗加成會標示。
+- **旗標紀錄視窗**：紀錄最近使用過的地圖旗標，可快速重新導航。
+- **公用標記與路線 IPC**：提供 `Mappy.AddMarker` 等端點讓其他插件把標記畫在地圖上，`Mappy.Overlay.*` 端點畫路線與節點；設定的「插件標記」「疊加層」分頁可逐來源開關。
+- **vnavmesh 路線疊加層**：在地圖上畫出 vnavmesh 目前正在走的路線（工具列可開關）。
+- **Lifestream 整合**：點擊地圖上的城內乙太網標記會優先走 Lifestream（認得分店與住宅區）；僅在使用者主動操作時觸發，沒有背景自動化。
+- **PvP**：「PvP 中允許開啟地圖」預設開啟；關掉的話在 PvP 區域讓出給原生地圖。
 
-> [!IMPORTANT]  
-> Mappy is not intended to replace the Minimap, there are many functions of the Minimap that Mappy does not replicate.
+## 指令
 
-## Map Window
+- `/mappy`：開關設定視窗；`/mappy help` 列出所有指令
+- `/mappy map show`／`hide`／`toggle`：開關地圖視窗；`/mappy map follow`／`unfollow`：地圖是否跟隨玩家
+- `/mappy questlist`、`/mappy fatelist`、`/mappy flaglist` 加 `enable`／`disable`／`toggle`：開關任務清單、FATE 清單、旗標紀錄視窗
+- `/mappy areamap reset`：原生地圖卡在畫面外時把它拉回來
 
-The main feature of this plugin is the map window itself. It is rendered via ImGui as an overlay ontop of the game UI.
-One major benefit of this is when you have Dalamud's Multi-Monitor Mode enabled, you can move Mappy onto another display.
+## 台服版的修改
 
-Among many customization options you can configure Mappy to suit your needs and preferences.
+- 介面繁體中文化。
+- 新增右鍵「移動到這裡」（透過 Lifestream）、vnavmesh 路線疊加層。
+- 新增公用標記與路線 IPC，讓其他插件畫到地圖上。
+- 新增好友／公會成員分色、緊急遭遇戰標記資訊、標記提示框外觀選項。
+- 點擊城內乙太網標記優先走 Lifestream；補畫小地圖標記。
+- 遊戲改版後地圖相關位址對不上時，只停掉對應的那一項，插件照常載入。
+- 換到有底紋的地圖時不再一次吃掉大量記憶體；多處降低每幀記憶體用量。
 
-![image](https://github.com/user-attachments/assets/23cc5cd9-f20b-4298-8aea-1c1942b4f29b)
-
-### Simple Context Menu
-
-Upon right clicking anywhere on the map, you will see a context menu that shows some additional actions you can perform.
-
-No more will you have to remember "wait was it alt + click to place a flag???"
-
-![image](https://github.com/user-attachments/assets/fba25c3c-0858-4f77-8ff1-0c169d401558)
-
-
-## Search Window
-
-Pressing the search button in the main ui will open a map search window that allows you to search for any 
-Map, Aetheryte, Point of Interest, or Aethernet to easily navigate to any map you wish.
-
-Points of Interest will focus the map on the exact location of the point of interest.
-
-Unfortunately the other search types don't include sufficient information to be able to center the map on them.
-
-![image](https://github.com/user-attachments/assets/c34824be-0e11-4bff-a423-f18dd247433f)
-
-## Configuration Window
-
-Mappys configuration window allows you to customize the displayed map features however you like.
-
-> [!TIP]
-> I have done my best to set reasonable defaults for settings, but it is up to you to tailor your experience to be how you would like.
-
-### Icon Settings
-
-The main way that you can tailor your map to suit your needs is via the Icon Settings, here you can configure what icons show, how big they are, what color they are, and more.
-
-You can configure any icon that the map has ever shown you, as you use Mappy more icons will become available as Mappy discovers them.
-
-![image](https://github.com/user-attachments/assets/3f9bff5f-5ca3-4728-a1d7-6c19dcea262e)
-
-## Quest List Window
-
-Accessible from the context menu, the Quest List Window will show you all of the quests that you have accepted, and all the quests that are available to be claimed in the current area.
-
-Clicking on any of these entries will focus the map on that specific quest.
-
-| Accepted  | Unaccepted   |
-|---|---|
-| ![image](https://github.com/user-attachments/assets/4f40aa42-f7ab-4cb6-b1b2-7b838227142a)  | ![image](https://github.com/user-attachments/assets/127d6052-533a-47b2-8c3d-ba32033c4317)  |
-
-## Fate List Window
-
-Accessible from the context menu, the Fate List Window will show you all of the Fates that are currently active in the current area.
-
-Fates that are expiring soon will have their named colored, and slowly fade from green to red the closer they get to expiring.
-
-Fates with exp bonuses will have "Exp Bonus!" displayed.
-
-Clicking on any entry in the Fate List Window will center the map on that fate.
-
-![image](https://github.com/user-attachments/assets/eb41dc11-87e5-4198-afb6-f394c18b75ab)
-
+原作者：[MidoriKami](https://github.com/MidoriKami/Mappy)

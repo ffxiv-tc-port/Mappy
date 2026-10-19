@@ -12,9 +12,16 @@ public unsafe class FlagController : IDisposable
 
     public FlagController()
     {
-        setFlagMapMarkerHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.SetFlagMapMarker>(AgentMap.MemberFunctionPointers.SetFlagMapMarker, OnSetFlagMapMarker);
+        // 位址沒解出時不建 hook（HookFromAddress 對 0 位址會擲，插件建構子就中斷）：只少旗標紀錄。
+        var setFlagMapMarker = AgentMap.MemberFunctionPointers.SetFlagMapMarker;
+        if (setFlagMapMarker is null) {
+            Service.Log.Warning("[Mappy] 找不到 AgentMap.SetFlagMapMarker 的位址（遊戲改版後特徵碼對不上），旗標紀錄停用，其餘功能照常。");
+        }
+        else {
+            setFlagMapMarkerHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.SetFlagMapMarker>(setFlagMapMarker, OnSetFlagMapMarker);
+        }
 
-        if (Service.ClientState is { IsPvP: false }) {
+        if (!IntegrationsController.IsPvPBlocked()) {
             EnableIntegrations();
         }
     }

@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System;
+using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
@@ -9,6 +10,10 @@ namespace Mappy.Classes.MapWindowComponents;
 
 public unsafe class MapCoordinateBar
 {
+    // 座標文字每幀都要；先格式化進堆疊緩衝區，跟上一幀逐字相同就沿用同一個字串。
+    private readonly ReusedText characterText = new();
+    private readonly ReusedText cursorText = new();
+
     public void Draw(bool isMapHovered, Vector2 mapDrawOffset)
     {
         var coordinateBarSize = new Vector2(ImGui.GetContentRegionMax().X, 20.0f * ImGuiHelpers.GlobalScale);
@@ -22,8 +27,11 @@ public unsafe class MapCoordinateBar
         var offsetY = -AgentMap.Instance()->SelectedOffsetY;
         var scale = AgentMap.Instance()->SelectedMapSizeFactor;
 
-        var characterMapPosition = MapUtil.WorldToMap(Service.ClientState.LocalPlayer?.Position ?? Vector3.Zero, offsetX, offsetY, 0, (uint)scale);
-        var characterPosition = $"角色  {characterMapPosition.X:F1}  {characterMapPosition.Y:F1}";
+        var characterMapPosition = MapUtil.WorldToMap(Service.ObjectTable.LocalPlayer?.Position ?? Vector3.Zero, offsetX, offsetY, 0, (uint)scale);
+        Span<char> buffer = stackalloc char[128];
+        var characterPosition = buffer.TryWrite($"角色  {characterMapPosition.X:F1}  {characterMapPosition.Y:F1}", out var characterLength)
+            ? characterText.Get(buffer[..characterLength])
+            : $"角色  {characterMapPosition.X:F1}  {characterMapPosition.Y:F1}";
 
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 2.0f * ImGuiHelpers.GlobalScale);
 
@@ -43,7 +51,9 @@ public unsafe class MapCoordinateBar
             cursorPosition /= AgentMap.Instance()->SelectedMapSizeFactorFloat;
 
             var cursorMapPosition = MapUtil.WorldToMap(new Vector3(cursorPosition.X, 0.0f, cursorPosition.Y), offsetX, offsetY, 0, (uint)scale);
-            var cursorPositionString = $"游標  {cursorMapPosition.X:F1}  {cursorMapPosition.Y:F1}";
+            var cursorPositionString = buffer.TryWrite($"游標  {cursorMapPosition.X:F1}  {cursorMapPosition.Y:F1}", out var cursorLength)
+                ? cursorText.Get(buffer[..cursorLength])
+                : $"游標  {cursorMapPosition.X:F1}  {cursorMapPosition.Y:F1}";
             var cursorStringSize = ImGui.CalcTextSize(characterPosition);
             ImGui.SameLine(ImGui.GetContentRegionMax().X * 2.0f / 3.0f - cursorStringSize.X / 2.0f);
             ImGui.TextColored(System.SystemConfig.CoordinateTextColor, cursorPositionString);

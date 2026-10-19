@@ -1,8 +1,11 @@
 ﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Numerics;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Dalamud.Interface;
 using KamiLib.Configuration;
 
@@ -45,6 +48,11 @@ public class SystemConfig : CharacterConfiguration
     public bool HideWithGameGui = true;
     public bool HideBetweenAreas = false;
     public bool HideInCombat = false;
+
+    // 台服追加：上游在 PvP 區域會強制關閉 Mappy 並讓出給遊戲原生地圖。
+    // 預設改為允許，關閉此選項即回到上游行為。
+    public bool AllowInPvP = true;
+
     public bool KeepOpen = false;
     public bool FollowOnOpen = false;
     public bool FollowPlayer = true;
@@ -98,11 +106,75 @@ public class SystemConfig : CharacterConfiguration
     public bool ScaleTextWithZoom = true;
     public float AutoZoomScaleFactor = 0.33f;
 
+    // 台服追加：地圖標記工具提示（危命任務、乙太之光那種浮出來的小框）的文字大小與不透明度。
+    // 上游的工具提示完全吃 ImGui 預設值，既有的文字比例與淡化選項都管不到它。
+    public float TooltipTextScale = 1.0f;
+    public float TooltipOpacity = 1.0f;
+
+    // 工具提示是畫在地圖視窗的 Alpha 樣式之內的，所以本來就會跟著地圖一起淡化。
+    // 預設 true ＝ 維持原本行為；關掉之後工具提示只吃上面的 TooltipOpacity。
+    public bool TooltipFollowsMapFade = true;
+
+    // 工具提示第一行（名稱）以下那幾行的文字顏色（F.A.T.E. 的剩餘時間與進度、IPC 標記的來源）。
+    // 上游寫死灰色，地圖淡化後的半透明底上幾乎看不見；缺鍵的舊設定檔讀進來就是這個初始值。
+    public Vector4 TooltipSecondaryTextColor = KnownColor.LightGray.Vector();
+
+    // 台服追加：補畫遊戲寫給小地圖用的那份標記（其他外掛也會往裡面塞）。
+    public bool ShowMiniMapMarkers = true;
+
+    // 台服追加：在其他玩家的圖示底下墊一個色點，用來一眼分出好友／同部隊／一般玩家。
+    // 小隊與團隊成員由 DrawGroupMembers 另外處理，不在這裡上色。
+    public bool ShowSocialMarkers = true;
+    public Vector4 FriendMarkerColor = KnownColor.Gold.Vector() with { W = 0.85f };
+    public Vector4 FreeCompanyMarkerColor = KnownColor.MediumSeaGreen.Vector() with { W = 0.85f };
+    public Vector4 OtherPlayerMarkerColor = KnownColor.Gray.Vector() with { W = 0.25f };
+    public Vector4 SocialMarkerOutlineColor = KnownColor.Black.Vector() with { W = 0.60f };
+    public float SocialMarkerRadius = 7.0f;
+
+    // 台服追加：地圖右鍵的「移動到這裡」——把跨區傳送與尋路整段交給 Lifestream。
+    // 🔴 只有使用者親手點右鍵選單時才會動，沒有任何事件驅動的自動接手鏈。
+    public bool EnableTravelToHere = true;
+
+    // 台服追加：「移動到這裡」允許使用飛行坐騎。
+    // ⚠️ 不可飛的區域由 Lifestream 自己退回用走的，這裡不需要（也不該）替它判斷。
+    public bool TravelUseFlying = true;
+
+    // 台服追加：其他外掛透過 IPC 放上來的標記，逐「來源」的開關。
+    // 來源第一次出現時會自動以 true 加進來。
+    // 🔴 型別必須是 ConcurrentDictionary：IPC 端點（呼叫端執行緒）、設定頁（繪製執行緒）與
+    //    Save() 的序列化列舉會並行，裸 Dictionary 的失敗形式是序列化當場擲例外、被 KamiLib
+    //    SaveFile 的 catch 吞成一行 Error —— 使用者這一次改的「全部」設定就這樣靜默沒存到。
+    public ConcurrentDictionary<string, bool> IpcSourceEnabled = new();
+
+    // 台服追加：路線疊加層（vnavmesh 目前路徑、其他插件送來的路線與節點）的總開關，地圖工具列也有一顆。
+    public bool ShowRouteOverlay = true;
+
+    // vnavmesh 目前正在走的路徑（不知道是哪個插件叫它走的）。
+    public bool ShowVnavmeshPath = true;
+    public Vector4 VnavmeshPathColor = KnownColor.Cyan.Vector() with { W = 0.88f };
+
+    // 透過 Mappy.Overlay.* 送過路線／節點的來源（值不用，當集合）：讓設定頁在那個插件沒載入時也列得出來。
+    // 各來源的顯示開關共用上面的 IpcSourceEnabled；型別必須是 ConcurrentDictionary，理由同上。
+    public ConcurrentDictionary<string, bool> RouteOverlaySources = new();
+
     // Do not persist this setting
     [JsonIgnore]
     public bool DebugMode = false;
 
-    public static SystemConfig Load() => Service.PluginInterface.LoadConfigFile<SystemConfig>("System.config.json");
+    public static SystemConfig Load() => Service.PluginInterface.LoadConfigFile("System.config.json", () => new SystemConfig());
 
     public static void Save() => Service.PluginInterface.SaveConfigFile("System.config.json", System.SystemConfig);
+
+    private static int savePending;
+
+    /// <summary>任何執行緒都可以呼叫：只設旗標，真的寫檔由框架執行緒的 <see cref="FlushPendingSave"/> 做。</summary>
+    public static void RequestSave() => Interlocked.Exchange(ref savePending, 1);
+
+    /// <summary>只在框架執行緒呼叫。</summary>
+    public static void FlushPendingSave()
+    {
+        if (Interlocked.Exchange(ref savePending, 0) is 1) {
+            Save();
+        }
+    }
 }

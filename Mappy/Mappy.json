@@ -4,7 +4,7 @@
   "Punchline": "功能更完整的遊戲地圖。",
   "Description": "以 ImGui 地圖取代遊戲內建地圖，並提供多項額外功能。",
   "Tags": [    "map",    "mapping",    "overlay",    "utility" ],
-  "InternalName": "mappy",
-  "RepoUrl": "https://github.com/cycleapple/Mappy/tree/api13-tw",
+  "InternalName": "Mappy",
+  "RepoUrl": "https://github.com/ffxiv-tc-port/Mappy",
   "AcceptsFeedback": false
 }

@@ -1,5 +1,6 @@
 ﻿using Dalamud.Interface.GameFonts;
 using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using KamiLib.Classes;
 using KamiLib.CommandManager;
@@ -29,6 +30,8 @@ public sealed class MappyPlugin : IDalamudPlugin
         System.FlagConfig = FlagConfig.Load();
 
         System.Teleporter = new Teleporter(Service.PluginInterface);
+        System.LifestreamIpc = new LifestreamIpc();
+        System.VnavmeshIpc = new VnavmeshIpc();
 
         System.CommandManager = new CommandManager(Service.PluginInterface, "mappy");
 
@@ -44,8 +47,11 @@ public sealed class MappyPlugin : IDalamudPlugin
         System.FlagController = new FlagController();
         System.AreaMapController = new AddonAreaMapController();
         System.IntegrationsController = new IntegrationsController();
+        System.MarkerIpcController = new MarkerIpcController();
+        System.RouteOverlayController = new RouteOverlayController();
 
         Service.PluginInterface.UiBuilder.OpenMainUi += OpenMapWindow;
+        Service.Framework.Update += OnFrameworkUpdate;
 
         System.CommandManager.RegisterCommand(new ToggleCommandHandler
         {
@@ -74,10 +80,22 @@ public sealed class MappyPlugin : IDalamudPlugin
 
     private unsafe void OpenMapWindow() => AgentMap.Instance()->Show();
 
+    private static void OnFrameworkUpdate(IFramework framework)
+    {
+        // 其他執行緒（IPC 端點）只設存檔旗標，這裡在框架執行緒上真的寫檔。
+        SystemConfig.FlushPendingSave();
+        System.RouteOverlayController.Update();
+    }
+
     public void Dispose()
     {
+        Service.Framework.Update -= OnFrameworkUpdate;
+
         System.MapWindow.OnClose();
         System.WindowManager.Dispose();
+        System.VnavmeshIpc.Dispose();
+        System.RouteOverlayController.Dispose();
+        System.MarkerIpcController.Dispose();
         System.IntegrationsController.Dispose();
         System.AreaMapController.Dispose();
         System.FlagController.Dispose();

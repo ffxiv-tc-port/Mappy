@@ -7,6 +7,7 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Interface;
 using Dalamud.Utility;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using InteropGenerator.Runtime;
 using Lumina.Excel.Sheets;
 using Mappy.Classes;
 using Map = Lumina.Excel.Sheets.Map;
@@ -16,35 +17,78 @@ namespace Mappy.Extensions;
 
 public static class MapMarkerInfoExtensions
 {
-    public static void Draw(this MapMarkerInfo marker, Vector2 offset, float scale)
-    {
-        var tooltipText = marker.MapMarker.Subtext.AsDalamudSeString();
+    // 契約：只在繪製執行緒呼叫。DrawMapMarker 當場用完 MarkerInfo 與它的委派、不保留，
+    // 所以共用一個實例，委派讀 current（這次 Draw 的標記複本）；副文字按原始位元組快取，位元組一變就重解。
+    private static SubtextCache[] subtexts = [];
+    private static MapMarkerInfo current;
+    private static SubtextCache currentSubtext = new();
+    private static readonly MarkerInfo Scratch = new() { Position = Vector2.Zero, Offset = Vector2.Zero, Scale = 1.0f };
+    private static readonly Func<string?> PrimaryTooltip = () => GetMarkerPrimaryTooltip(ref current, currentSubtext);
+    private static readonly Func<string?> SecondaryTooltip = () => GetTooltip(ref current);
+    private static readonly global::System.Action LeftClicked = () => OnMarkerClicked(ref current);
 
-        var markerInfo = new MarkerInfo
-        {
+    /// <param name="slot">這個標記在 AgentMap.MapMarkers 裡的索引，副文字快取以它分格。</param>
+    public static void Draw(this MapMarkerInfo marker, int slot, Vector2 offset, float scale)
+    {
+        var subtext = GetSubtextCache(slot);
+        subtext.Refresh(marker.MapMarker.Subtext);
+        current = marker;
+        currentSubtext = subtext;
+
+        var markerInfo = Scratch;
+        markerInfo.ResetForReuse(
             // Divide by 16, as it seems they use a fixed scalar
             // Add 1024 * scale, to offset from top-left, to center-based coordinate
             // Add offset for drawing relative to map when it's moved around
-            Position = new Vector2(marker.MapMarker.X, marker.MapMarker.Y) / 16.0f * scale + DrawHelpers.GetMapCenterOffsetVector() * scale,
-            Offset = offset,
-            Scale = scale,
-            Radius = marker.MapMarker.Scale,
-            RadiusColor = KnownColor.MediumPurple.Vector(),
-            IconId = marker.MapMarker.IconId,
-            PrimaryText = GetMarkerPrimaryTooltip(marker, tooltipText),
-            OnLeftClicked = () => OnMarkerClicked(ref marker),
-            SecondaryText = () => GetTooltip(ref marker),
-        };
+            new Vector2(marker.MapMarker.X, marker.MapMarker.Y) / 16.0f * scale + DrawHelpers.GetMapCenterOffsetVector() * scale,
+            offset,
+            scale);
+        markerInfo.Radius = marker.MapMarker.Scale;
+        markerInfo.RadiusColor = KnownColor.MediumPurple.Vector();
+        markerInfo.IconId = marker.MapMarker.IconId;
+        markerInfo.PrimaryText = PrimaryTooltip;
+        markerInfo.OnLeftClicked = LeftClicked;
+        markerInfo.SecondaryText = SecondaryTooltip;
 
         if (marker.MapMarker.IconId is 0 && marker.MapMarker.Index is not 0) {
-            TryDrawText(marker, markerInfo, tooltipText);
+            TryDrawText(marker, markerInfo, subtext);
         }
         else {
             DrawHelpers.DrawMapMarker(markerInfo);
         }
     }
 
-    private static void TryDrawText(MapMarkerInfo marker, MarkerInfo markerInfo, SeString tooltipText)
+    private static SubtextCache GetSubtextCache(int slot)
+    {
+        if (slot >= subtexts.Length) {
+            Array.Resize(ref subtexts, Math.Max(slot + 1, subtexts.Length * 2));
+        }
+
+        return subtexts[slot] ??= new SubtextCache();
+    }
+
+    /// <summary>
+    /// 一格標記的副文字。Text 等於 Subtext.AsDalamudSeString().TextValue：
+    /// 同樣的位元組解出同樣的字串，所以只在位元組變了才重解，而且等到真的要用（畫文字、滑鼠移上去）才解。
+    /// </summary>
+    private sealed class SubtextCache
+    {
+        private byte[] raw = [];
+        private string? text;
+
+        public void Refresh(CStringPointer subtext)
+        {
+            var bytes = subtext.AsSpan();
+            if (bytes.SequenceEqual(raw)) return;
+
+            raw = bytes.ToArray();
+            text = null;
+        }
+
+        public string Text => text ??= SeString.Parse(raw).TextValue;
+    }
+
+    private static void TryDrawText(MapMarkerInfo marker, MarkerInfo markerInfo, SubtextCache subtext)
     {
         if (!System.SystemConfig.ShowTextLabels) return;
 
@@ -61,7 +105,7 @@ public static class MapMarkerInfoExtensions
             markerInfo.Scale = textTypeScalar * 0.33f;
         }
 
-        DrawHelpers.DrawText(markerInfo, tooltipText);
+        DrawHelpers.DrawText(markerInfo, subtext.Text);
     }
 
     private static void OnMarkerClicked(ref MapMarkerInfo marker)
@@ -102,11 +146,22 @@ public static class MapMarkerInfoExtensions
     {
         if (marker.DataKey is 0) return;
 
+        // 這一列其實是乙太網分店時，Telepo 傳送不過去（它只認母乙太之光），交給 Lifestream 走乙太網。
+        if (Service.DataManager.GetExcelSheet<Aetheryte>().GetRowOrDefault(marker.DataKey) is { IsAetheryte: false }) {
+            if (System.LifestreamIpc.TryHandleAethernetShardClick(marker.DataKey)) return;
+        }
+
         System.Teleporter.Teleport(marker.DataKey);
     }
 
     private static void OnAethernetClicked(ref MapMarkerInfo marker)
     {
+        if (marker.DataKey is 0) return;
+
+        // 優先讓 Lifestream 走真正的乙太網移動：它認得分店、住宅區與自訂乙太網，
+        // 內建的 Telepo 只會傳到母乙太之光。Lifestream 沒裝／不在水晶旁／呼叫失敗時退回原行為。
+        if (System.LifestreamIpc.TryHandleAethernetClick(marker.DataKey)) return;
+
         var aetheryte = GetAetheryteForAethernet(marker.DataKey);
         if (aetheryte is null) return;
         if (aetheryte.Value.RowId is 0) return;
@@ -183,16 +238,16 @@ public static class MapMarkerInfoExtensions
 
     private static string GetAetheryteTeleportCost(uint targetDataKey) => $"({GetAetheryteTeleportGilCost(targetDataKey) ?? 0:n0} {SeIconChar.Gil.ToIconChar()})";
 
-    private static Func<string> GetMarkerPrimaryTooltip(MapMarkerInfo marker, SeString tooltipText)
+    private static string GetMarkerPrimaryTooltip(ref MapMarkerInfo marker, SubtextCache subtext)
     {
-        if (DrawHelpers.IsDisallowedIcon(marker.MapMarker.IconId)) return () => string.Empty;
-        if (!System.SystemConfig.ShowMiscTooltips) return () => string.Empty;
-        if (!tooltipText.TextValue.IsNullOrEmpty()) return tooltipText.ToString;
+        if (DrawHelpers.IsDisallowedIcon(marker.MapMarker.IconId)) return string.Empty;
+        if (!System.SystemConfig.ShowMiscTooltips) return string.Empty;
+        if (!subtext.Text.IsNullOrEmpty()) return subtext.Text;
 
         return marker.DataType switch
         {
-            4 => () => Service.DataManager.GetExcelSheet<PlaceName>().GetRow(marker.DataKey).Name.ExtractText(),
-            _ => () => System.TooltipCache.GetValue(marker.MapMarker.IconId) ?? string.Empty,
+            4 => Service.DataManager.GetExcelSheet<PlaceName>().GetRow(marker.DataKey).Name.ExtractText(),
+            _ => System.TooltipCache.GetValue(marker.MapMarker.IconId) ?? string.Empty,
         };
     }
 }

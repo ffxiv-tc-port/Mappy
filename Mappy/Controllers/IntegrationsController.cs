@@ -10,6 +10,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using KamiLib.Classes;
 using KamiLib.Extensions;
 using Lumina.Excel.Sheets;
+using Lumina.Text.ReadOnly;
 using Mappy.Classes;
 using Mappy.Extensions;
 using MapType = FFXIVClientStructs.FFXIV.Client.UI.Agent.MapType;
@@ -23,16 +24,34 @@ public unsafe class IntegrationsController : IDisposable
 
     public IntegrationsController()
     {
-        showMapHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.ShowMap>(AgentMap.MemberFunctionPointers.ShowMap, OnShowHook);
-        openMapHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.OpenMap>(AgentMap.MemberFunctionPointers.OpenMap, OnOpenMapHook);
+        // 位址沒解出時不建那一個 hook（HookFromAddress 對 0 位址會擲，插件建構子就中斷）；兩個各自獨立。
+        var showMap = AgentMap.MemberFunctionPointers.ShowMap;
+        if (showMap is null)
+        {
+            Service.Log.Warning("[Mappy] 找不到 AgentMap.ShowMap 的位址（遊戲改版後特徵碼對不上），不攔截遊戲的開地圖動作：「保持開啟」與戰鬥中／切換區域時不開地圖等條件停用，其餘功能照常。");
+        }
+        else
+        {
+            showMapHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.ShowMap>(showMap, OnShowHook);
+        }
 
-        if (Service.ClientState is { IsPvP: false })
+        var openMap = AgentMap.MemberFunctionPointers.OpenMap;
+        if (openMap is null)
+        {
+            Service.Log.Warning("[Mappy] 找不到 AgentMap.OpenMap 的位址（遊戲改版後特徵碼對不上），從任務／採集／旗標／傳送連結開地圖時不會自動切換地圖與置中，其餘功能照常。");
+        }
+        else
+        {
+            openMapHook ??= Service.Hooker.HookFromAddress<AgentMap.Delegates.OpenMap>(openMap, OnOpenMapHook);
+        }
+
+        if (!IsPvPBlocked())
         {
             EnableIntegrations();
         }
 
-        Service.ClientState.EnterPvP += DisableIntegrations;
-        Service.ClientState.LeavePvP += EnableIntegrations;
+        Service.ClientState.EnterPvP += ApplyPvPPolicy;
+        Service.ClientState.LeavePvP += ApplyPvPPolicy;
     }
 
     public void Dispose()
@@ -42,8 +61,34 @@ public unsafe class IntegrationsController : IDisposable
         showMapHook?.Dispose();
         openMapHook?.Dispose();
 
-        Service.ClientState.EnterPvP -= DisableIntegrations;
-        Service.ClientState.LeavePvP -= EnableIntegrations;
+        Service.ClientState.EnterPvP -= ApplyPvPPolicy;
+        Service.ClientState.LeavePvP -= ApplyPvPPolicy;
+    }
+
+    /// <summary>
+    /// PvP 區域是否要把地圖讓給遊戲原生介面（＝上游原本的行為）。
+    /// 設定「PvP 中允許開啟地圖」開啟時永遠回傳 false。
+    /// </summary>
+    public static bool IsPvPBlocked()
+        => Service.ClientState is { IsPvP: true } && !System.SystemConfig.AllowInPvP;
+
+    /// <summary>
+    /// 依目前所在區域與設定，決定要不要接管地圖。切換 PvP 進出、或使用者改設定時呼叫。
+    /// </summary>
+    public void ApplyPvPPolicy()
+    {
+        if (IsPvPBlocked())
+        {
+            DisableIntegrations();
+            return;
+        }
+
+        if (Service.ClientState is { IsPvP: true })
+        {
+            Service.Log.Information("[Mappy] 位於 PvP 區域，依設定「PvP 中允許開啟地圖」繼續接管地圖。");
+        }
+
+        EnableIntegrations();
     }
 
     private void EnableIntegrations()
@@ -273,7 +318,8 @@ public unsafe class IntegrationsController : IDisposable
 
     public static bool ShouldShowMap()
     {
-        if (Service.ClientState is { IsLoggedIn: false } or { IsPvP: true }) return false;
+        if (Service.ClientState is { IsLoggedIn: false }) return false;
+        if (IsPvPBlocked()) return false;
         if (System.SystemConfig.HideInCombat && Service.Condition.IsInCombat()) return false;
         if (System.SystemConfig.HideBetweenAreas && Service.Condition.IsBetweenAreas()) return false;
         if (System.SystemConfig.HideWithGameGui && !IsNamePlateAddonVisible()) return false;
@@ -286,12 +332,19 @@ public unsafe class IntegrationsController : IDisposable
 
     private uint? GetMapIdForQuest(OpenMapInfo* mapInfo)
     {
+        // 🔴 TitleString 是 Utf8String,它的 ToString() 把整段位元組當 UTF-8 直接解碼,
+        //    完全不剝 SeString payload。從聊天連結／任務日誌開地圖時這個標題常常帶 payload,
+        //    解出來會混進 U+FFFD 與控制位元組;而比對的另一端是 Lumina 的 ExtractText()
+        //    (payload 已剝掉)⇒ 兩端基準不同、string.Equals 恆假。
+        //    後果是靜默的:找不到對應地圖就落回預設行為,使用者只會覺得「連結開錯地圖」。
+        var mapTitle = new ReadOnlySeStringSpan(mapInfo->TitleString.AsSpan()).ExtractText();
+
         foreach (var leveQuest in QuestManager.Instance()->LeveQuests)
         {
             if (leveQuest.LeveId is 0) continue;
 
             var leveData = Service.DataManager.GetExcelSheet<Leve>().GetRow(leveQuest.LeveId);
-            if (!IsNameMatch(leveData.Name.ExtractText(), mapInfo)) continue;
+            if (!IsNameMatch(leveData.Name.ExtractText(), mapTitle)) continue;
 
             return leveData.LevelStart.Value.Map.RowId;
         }
@@ -302,7 +355,7 @@ public unsafe class IntegrationsController : IDisposable
 
             // Is this the quest we are looking for?
             var questData = Service.DataManager.GetExcelSheet<Quest>().GetRow(quest.QuestId + 65536u);
-            if (!IsNameMatch(questData.Name.ExtractText(), mapInfo)) continue;
+            if (!IsNameMatch(questData.Name.ExtractText(), mapTitle)) continue;
 
             return questData
                 .TodoParams.FirstOrDefault(param => param.ToDoCompleteSeq == quest.Sequence)
@@ -311,10 +364,10 @@ public unsafe class IntegrationsController : IDisposable
         }
 
         var possibleQuests = Service.DataManager.GetExcelSheet<Quest>()
-            .Where(quest => quest is { IssuerLocation: { IsValid: true, RowId: not 0 } }).FirstOrNull(quest => IsNameMatch(quest.Name.ExtractText(), mapInfo));
+            .Where(quest => quest is { IssuerLocation: { IsValid: true, RowId: not 0 } }).FirstOrNull(quest => IsNameMatch(quest.Name.ExtractText(), mapTitle));
 
         return possibleQuests?.IssuerLocation.Value.Map.RowId ?? null;
     }
 
-    private static bool IsNameMatch(string name, OpenMapInfo* mapInfo) => string.Equals(name, mapInfo->TitleString.ToString(), StringComparison.OrdinalIgnoreCase);
+    private static bool IsNameMatch(string name, string mapTitle) => string.Equals(name, mapTitle, StringComparison.OrdinalIgnoreCase);
 }

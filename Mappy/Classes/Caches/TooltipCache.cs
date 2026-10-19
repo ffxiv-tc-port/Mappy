@@ -1,10 +1,9 @@
-﻿using KamiLib.Classes;
-using Lumina.Excel.Sheets;
+﻿using Lumina.Excel.Sheets;
 using Lumina.Extensions;
 
 namespace Mappy.Classes.Caches;
 
-public class TooltipCache : Cache<uint, string>
+public class TooltipCache : MappyCache<uint, string>
 {
     protected override string LoadValue(uint key)
     {

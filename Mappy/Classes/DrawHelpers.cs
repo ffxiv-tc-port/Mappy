@@ -18,7 +18,7 @@ public class MarkerInfo
     public required Vector2 Position { get; set; }
     public required Vector2 Offset { get; set; }
     public required float Scale { get; set; }
-    public uint? ObjectiveId { get; init; }
+    public uint? ObjectiveId { get; set; }
     public uint? DataId { get; set; }
     public MarkerType MarkerType { get; set; }
     public uint IconId { get; set; }
@@ -29,7 +29,30 @@ public class MarkerInfo
     public Vector4 RadiusOutlineColor { get; set; } = KnownColor.CornflowerBlue.Vector();
     public Action? OnRightClicked { get; set; }
     public Action? OnLeftClicked { get; set; }
-    public bool IsDynamicMarker { get; init; }
+    public bool IsDynamicMarker { get; set; }
+
+    /// <summary>
+    /// 還原成「剛 new 出來、只填了三個 required」的狀態，給每幀重用同一個實例的繪製路徑用。
+    /// 新增可寫屬性時要一併加進來，否則上一個標記的值會漏到下一個。
+    /// </summary>
+    internal void ResetForReuse(Vector2 position, Vector2 offset, float scale)
+    {
+        Position = position;
+        Offset = offset;
+        Scale = scale;
+        ObjectiveId = null;
+        DataId = null;
+        MarkerType = default;
+        IconId = 0;
+        PrimaryText = null;
+        SecondaryText = null;
+        Radius = null;
+        RadiusColor = KnownColor.CornflowerBlue.Vector();
+        RadiusOutlineColor = KnownColor.CornflowerBlue.Vector();
+        OnRightClicked = null;
+        OnLeftClicked = null;
+        IsDynamicMarker = false;
+    }
 }
 
 public static class DrawHelpers
@@ -85,12 +108,12 @@ public static class DrawHelpers
         };
 
         if (DebugMode) {
-            markerInfo.SecondaryText = markerInfo.PrimaryText;
-            markerInfo.PrimaryText = () => $"[Debug] IconId: {markerInfo.IconId}";
+            SetDebugTooltip(markerInfo);
         }
 
         // If this is the first time we have seen this iconId, save it
-        if (System.IconConfig.IconSettingMap.TryAdd(markerInfo.IconId, new IconSetting { IconId = markerInfo.IconId, })) {
+        if (!System.IconConfig.IconSettingMap.ContainsKey(markerInfo.IconId) &&
+            System.IconConfig.IconSettingMap.TryAdd(markerInfo.IconId, new IconSetting { IconId = markerInfo.IconId, })) {
             System.IconConfig.Save();
         }
 
@@ -112,6 +135,13 @@ public static class DrawHelpers
         DrawIcon(markerInfo);
         ProcessInteractions(markerInfo);
         DrawTooltip(markerInfo);
+    }
+
+    // 閉包放在另一個方法：C# 在方法開頭就建立捕獲參數的閉包物件，寫在 DrawMapMarker 裡等於每個標記每幀都配置一次。
+    private static void SetDebugTooltip(MarkerInfo markerInfo)
+    {
+        markerInfo.SecondaryText = markerInfo.PrimaryText;
+        markerInfo.PrimaryText = () => $"[Debug] IconId: {markerInfo.IconId}";
     }
 
     private static unsafe void DrawRadiusUnderlay(MarkerInfo markerInfo)
@@ -178,8 +208,8 @@ public static class DrawHelpers
             ImGui.GetWindowDrawList().AddRect(drawPosition, drawPosition + textSize, ImGui.GetColorU32(KnownColor.Green.Vector()), 3.0f);
         }
 
-        foreach (var x in Enumerable.Range(-1, 3)) {
-            foreach (var y in Enumerable.Range(-1, 3)) {
+        for (var x = -1; x <= 1; x++) {
+            for (var y = -1; y <= 1; y++) {
                 if (x is 0 && y is 0) continue;
 
                 ImGui.SetCursorScreenPos(drawPosition + new Vector2(x, y));
@@ -225,22 +255,46 @@ public static class DrawHelpers
 
         if (isActivatedViaRadius || ImGui.IsItemHovered()) {
             if (markerInfo.PrimaryText?.Invoke() is { Length: > 0 } primaryText) {
+                var textScale = GetTooltipTextScale();
+
+                using var tooltipAlpha = ImRaii.PushStyle(ImGuiStyleVar.Alpha, GetTooltipAlpha());
                 using var tooltip = ImRaii.Tooltip();
 
-                ImGui.Image(Service.TextureProvider.GetFromGameIcon(markerInfo.IconId).GetWrapOrEmpty().Handle, ImGuiHelpers.ScaledVector2(32.0f, 32.0f));
+                ImGui.SetWindowFontScale(textScale);
+
+                ImGui.Image(Service.TextureProvider.GetFromGameIcon(markerInfo.IconId).GetWrapOrEmpty().Handle, ImGuiHelpers.ScaledVector2(32.0f, 32.0f) * textScale);
 
                 ImGui.SameLine();
-                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 7.5f * ImGuiHelpers.GlobalScale);
+                ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 7.5f * ImGuiHelpers.GlobalScale * textScale);
                 var cursorPosition = ImGui.GetCursorPos();
                 ImGui.Text(primaryText);
 
                 if (markerInfo.SecondaryText?.Invoke() is { Length: > 0 } secondaryText) {
                     ImGui.SameLine();
                     ImGui.SetCursorPos(cursorPosition);
-                    ImGuiTweaks.TextColoredUnformatted(KnownColor.Gray.Vector(), $"\n{secondaryText}");
+                    ImGuiTweaks.TextColoredUnformatted(System.SystemConfig.TooltipSecondaryTextColor, $"\n{secondaryText}");
                 }
+
+                // 工具提示視窗是整個 ImGui context 共用的，字體倍率留著會污染別的外掛。
+                ImGui.SetWindowFontScale(1.0f);
             }
         }
+    }
+
+    /// <summary>
+    /// 工具提示的文字倍率。上游的工具提示吃的是 ImGui 預設字體大小，沒有任何設定管得到它。
+    /// </summary>
+    public static float GetTooltipTextScale() => Math.Clamp(System.SystemConfig.TooltipTextScale, 0.50f, 3.00f);
+
+    /// <summary>
+    /// 工具提示要用的 Alpha。工具提示畫在地圖視窗的 Alpha 樣式之內，
+    /// 預設沿用目前的樣式值（＝跟著地圖一起淡化）；關掉「跟隨地圖淡化」之後才由設定單獨決定。
+    /// </summary>
+    public static float GetTooltipAlpha()
+    {
+        var alpha = Math.Clamp(System.SystemConfig.TooltipOpacity, 0.05f, 1.00f);
+
+        return System.SystemConfig.TooltipFollowsMapFade ? alpha * ImGui.GetStyle().Alpha : alpha;
     }
 
     public static bool IsDisallowedIcon(uint iconId) =>

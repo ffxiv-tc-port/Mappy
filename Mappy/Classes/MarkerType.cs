@@ -4,5 +4,6 @@ public enum MarkerType
 {
     Unknown = 0,
     Fate = 1,
+    DynamicEvent = 2,
     Stellar = 6,
 }
