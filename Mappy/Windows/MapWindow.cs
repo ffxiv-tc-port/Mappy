@@ -49,6 +49,27 @@ public class MapWindow : Window
 
     public override bool DrawConditions() => IntegrationsController.ShouldShowMap();
 
+    public override void PreDraw()
+    {
+        base.PreDraw();
+        ForceMainWindow = ShouldStayInGameViewport();
+    }
+
+    private static bool HidesBackground() => System.SystemConfig.HideWindowBackground || System.SystemConfig.HideWindowFrame;
+
+    // 視窗只要有一角超出遊戲畫面，ImGui 就把它放進自己的 OS 視窗；實機上那個視窗是黑底，隱藏的背景與淡化都透不到遊戲畫面。
+    // 只在視窗中心還在遊戲畫面內時才固定（刻意不全部固定：整個拖到別的螢幕的視窗被固定回來會看不見）。
+    private static bool ShouldStayInGameViewport()
+    {
+        if (!HidesBackground()) return false;
+
+        var mainViewport = ImGui.GetMainViewport();
+        var center = System.SystemConfig.WindowPosition + System.SystemConfig.WindowSize / 2.0f;
+        var min = mainViewport.Pos;
+        var max = mainViewport.Pos + mainViewport.Size;
+        return center.X >= min.X && center.Y >= min.Y && center.X < max.X && center.Y < max.Y;
+    }
+
     public override void PreOpenCheck()
     {
         if (System.SystemConfig.KeepOpen) {
@@ -102,7 +123,14 @@ public class MapWindow : Window
 
         MapDrawOffset = ImGui.GetCursorScreenPos();
         using var fade = ImRaii.PushStyle(ImGuiStyleVar.Alpha, System.SystemConfig.FadePercent, ShouldFade());
-        using (var renderChild = ImRaii.Child("render_child", ImGui.GetContentRegionAvail(), false, ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoScrollbar)) {
+
+        // 隱藏背景時子視窗的 ChildBg 也不畫：Dalamud 樣式的 ChildBg 可能不透明，會在地圖貼圖外留一塊深色底。
+        ImRaii.IEndObject renderChild;
+        using (ImRaii.PushColor(ImGuiCol.ChildBg, Vector4.Zero, HidesBackground())) {
+            renderChild = ImRaii.Child("render_child", ImGui.GetContentRegionAvail(), false, ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoScrollbar);
+        }
+
+        using (renderChild) {
             if (!renderChild) return;
             if (!System.SystemConfig.AcceptedSpoilerWarning) {
                 DrawSpoilerWarning();
