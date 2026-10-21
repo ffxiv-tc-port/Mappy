@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Hooking;
@@ -339,15 +340,23 @@ public unsafe class IntegrationsController : IDisposable
         //    後果是靜默的:找不到對應地圖就落回預設行為,使用者只會覺得「連結開錯地圖」。
         var mapTitle = new ReadOnlySeStringSpan(mapInfo->TitleString.AsSpan()).ExtractText();
 
+        // 標題只有名稱，同名任務／理符不少（例如「冒險者入門」×8）⇒ 每一步都收齊同名候選再挑，不取第一筆。
+        // OpenMapInfo.QuestId 的語意沒驗證過，只拿來在同名候選之間挑，不單獨採信。
+        var hintId = mapInfo->QuestId;
+        var hits = new List<QuestTitleMatch.Candidate>();
+
         foreach (var leveQuest in QuestManager.Instance()->LeveQuests)
         {
             if (leveQuest.LeveId is 0) continue;
 
             var leveData = Service.DataManager.GetExcelSheet<Leve>().GetRow(leveQuest.LeveId);
-            if (!IsNameMatch(leveData.Name.ExtractText(), mapTitle)) continue;
+            if (!QuestTitleMatch.NameEquals(leveData.Name.ExtractText(), mapTitle)) continue;
 
-            return leveData.LevelStart.Value.Map.RowId;
+            hits.Add(new QuestTitleMatch.Candidate(leveQuest.LeveId, leveData.LevelStart.Value.Map.RowId));
         }
+
+        if (Decide(hits, id => hintId == id, mapTitle, hintId, "進行中的理符", out var leveMap) is { } leveDone)
+            return leveDone ? leveMap : null;
 
         foreach (var quest in QuestManager.Instance()->NormalQuests)
         {
@@ -355,19 +364,62 @@ public unsafe class IntegrationsController : IDisposable
 
             // Is this the quest we are looking for?
             var questData = Service.DataManager.GetExcelSheet<Quest>().GetRow(quest.QuestId + 65536u);
-            if (!IsNameMatch(questData.Name.ExtractText(), mapTitle)) continue;
+            if (!QuestTitleMatch.NameEquals(questData.Name.ExtractText(), mapTitle)) continue;
 
-            return questData
+            var mapId = questData
                 .TodoParams.FirstOrDefault(param => param.ToDoCompleteSeq == quest.Sequence)
                 .ToDoLocation.FirstOrDefault(location => location is not { RowId: 0, ValueNullable: null })
                 .Value.Map.RowId;
+            hits.Add(new QuestTitleMatch.Candidate(questData.RowId, mapId));
         }
 
-        var possibleQuests = Service.DataManager.GetExcelSheet<Quest>()
-            .Where(quest => quest is { IssuerLocation: { IsValid: true, RowId: not 0 } }).FirstOrNull(quest => IsNameMatch(quest.Name.ExtractText(), mapTitle));
+        if (Decide(hits, id => IsQuestHint(hintId, id), mapTitle, hintId, "進行中的任務", out var activeMap) is { } activeDone)
+            return activeDone ? activeMap : null;
 
-        return possibleQuests?.IssuerLocation.Value.Map.RowId ?? null;
+        foreach (var quest in Service.DataManager.GetExcelSheet<Quest>())
+        {
+            if (quest is not { IssuerLocation: { IsValid: true, RowId: not 0 } }) continue;
+            if (!QuestTitleMatch.NameEquals(quest.Name.ExtractText(), mapTitle)) continue;
+
+            hits.Add(new QuestTitleMatch.Candidate(quest.RowId, quest.IssuerLocation.Value.Map.RowId));
+        }
+
+        // 同名時先排除已完成的（可接的優先）；排除後一個不剩就維持全部候選。
+        if (hits.Count > 1 && QuestManager.MemberFunctionPointers.IsQuestComplete is not null)
+        {
+            var open = hits.FindAll(hit => !QuestManager.IsQuestComplete(hit.Id));
+            if (open.Count > 0)
+                hits = open;
+        }
+
+        return Decide(hits, id => IsQuestHint(hintId, id), mapTitle, hintId, "任務表", out var issuerMap) is true ? issuerMap : null;
     }
 
-    private static bool IsNameMatch(string name, string mapTitle) => string.Equals(name, mapTitle, StringComparison.OrdinalIgnoreCase);
+    /// <returns>null＝這一步沒有同名候選、往下一步找；true＝挑到唯一（<paramref name="mapId"/>）；false＝同名分不出，不做。</returns>
+    private static bool? Decide(List<QuestTitleMatch.Candidate> hits, Func<uint, bool> hintMatches, string mapTitle, uint hintId,
+                                string source, out uint mapId)
+    {
+        var outcome = QuestTitleMatch.Pick(hits, hintId is 0 ? null : hintMatches, out mapId);
+        if (outcome is QuestTitleMatch.Outcome.Ambiguous)
+        {
+            Service.Log.Information($"[Mappy] 地圖標題「{mapTitle}」在{source}裡有 {hits.Count} 筆同名、指向不同地圖，分不出是哪一筆，不採用名稱反查的結果" +
+                                    $"（候選 {string.Join("、", hits.Select(hit => $"{hit.Id}→地圖 {hit.MapId}"))}；OpenMapInfo.QuestId={hintId}）。");
+        }
+        else if (outcome is QuestTitleMatch.Outcome.Unique && hits.Count > 1)
+        {
+            Service.Log.Information($"[Mappy] 地圖標題「{mapTitle}」在{source}裡有 {hits.Count} 筆同名，已挑出地圖 {mapId}（OpenMapInfo.QuestId={hintId}）。");
+        }
+
+        var result = outcome switch
+        {
+            QuestTitleMatch.Outcome.Unique => true,
+            QuestTitleMatch.Outcome.Ambiguous => false,
+            _ => (bool?)null,
+        };
+        hits.Clear();
+        return result;
+    }
+
+    // 任務 ID 在表裡是 65536 起跳、在 QuestManager 裡是去掉高位的 ushort；提示是哪一種不確定，兩種都認。
+    private static bool IsQuestHint(uint hintId, uint questRowId) => hintId == questRowId || hintId == (questRowId & 0xFFFF);
 }
