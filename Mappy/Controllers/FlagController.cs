@@ -2,6 +2,7 @@
 using Dalamud.Hooking;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using KamiLib.Classes;
+using Mappy.Classes;
 using Mappy.Data;
 
 namespace Mappy.Controllers;
@@ -41,9 +42,9 @@ public unsafe class FlagController : IDisposable
         setFlagMapMarkerHook?.Disable();
     }
 
-    private void OnSetFlagMapMarker(AgentMap* thisPtr, uint territoryId, uint mapId, float x, float y, uint iconId) =>
-        HookSafety.ExecuteSafe(() =>
-        {
+    private void OnSetFlagMapMarker(AgentMap* thisPtr, uint territoryId, uint mapId, float x, float y, uint iconId)
+    {
+        try {
             var newFlagData = new Flag(territoryId, mapId, x, y, iconId);
             var dataFile = System.FlagConfig;
 
@@ -56,7 +57,11 @@ public unsafe class FlagController : IDisposable
 
                 dataFile.Save();
             }
+        }
+        catch (Exception exception) {
+            DetourGuard.Report(nameof(OnSetFlagMapMarker), exception);
+        }
 
-            setFlagMapMarkerHook!.Original.Invoke(thisPtr, territoryId, mapId, x, y, iconId);
-        }, Service.Log, "Exception during OnSetFlagMapMarker");
+        setFlagMapMarkerHook!.Original.Invoke(thisPtr, territoryId, mapId, x, y, iconId);
+    }
 }

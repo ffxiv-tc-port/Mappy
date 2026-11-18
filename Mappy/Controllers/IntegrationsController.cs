@@ -114,81 +114,111 @@ public unsafe class IntegrationsController : IDisposable
         System.FlagController.DisableIntegrations();
     }
 
-    private void OnShowHook(AgentMap* agent, bool a1, bool a2) =>
-        HookSafety.ExecuteSafe(() =>
+    private void OnShowHook(AgentMap* agent, bool a1, bool a2)
+    {
+        bool callOriginal;
+        try
         {
-            Service.Log.Debug("[OnShow] Beginning Show");
+            callOriginal = ShouldPassShowToGame();
+        }
+        catch (Exception exception)
+        {
+            DetourGuard.Report("OnShowHook", exception);
+            callOriginal = true;
+        }
 
-            if (!ShouldShowMap())
-            {
-                Service.Log.Debug("[OnShow] Condition to open map is rejected, aborting.");
-                return;
-            }
-
-            if (AgentMap.Instance()->AddonId is not 0 && AgentMap.Instance()->CurrentMapId != AgentMap.Instance()->SelectedMapId)
-            {
-                if (!System.SystemConfig.KeepOpen)
-                {
-                    AgentMap.Instance()->Hide();
-                }
-
-                Service.Log.Debug("[OnShow] Vanilla tried to return to current map, aborted.");
-                return;
-            }
-
-            if (System.SystemConfig.KeepOpen)
-            {
-                Service.Log.Debug("[OnShow] Keeping Open");
-                return;
-            }
-
+        // 回 false 的分支刻意不呼叫原函式：擋掉遊戲把地圖切回目前區域、或「保持開啟」時不重開。
+        if (callOriginal)
+        {
             showMapHook!.Original(agent, a1, a2);
-        }, Service.Log, "Exception during OnShowHook");
+        }
+    }
 
-    private void OnOpenMapHook(AgentMap* agent, OpenMapInfo* mapInfo) =>
-        HookSafety.ExecuteSafe(() =>
+    private static bool ShouldPassShowToGame()
+    {
+        Service.Log.Debug("[OnShow] Beginning Show");
+
+        if (!ShouldShowMap())
         {
-            openMapHook!.Original(agent, mapInfo);
+            Service.Log.Debug("[OnShow] Condition to open map is rejected, aborting.");
+            return false;
+        }
 
-            switch (mapInfo->Type)
+        if (AgentMap.Instance()->AddonId is not 0 && AgentMap.Instance()->CurrentMapId != AgentMap.Instance()->SelectedMapId)
+        {
+            if (!System.SystemConfig.KeepOpen)
             {
-                case MapType.QuestLog:
-                    ProcessQuestLink(agent, mapInfo);
-                    break;
-
-                case MapType.GatheringLog:
-                    ProcessGatheringLink(agent);
-                    break;
-
-                case MapType.FlagMarker:
-                    ProcessFlagLink(agent);
-                    break;
-
-                case MapType.Bozja:
-                    ProcessForayLink(agent, mapInfo);
-                    break;
-
-                case MapType.MobHunt:
-                case MapType.SharedFate:
-                case MapType.Teleport:
-                case MapType.Treasure:
-                    ProcessTeleportLink(agent, mapInfo);
-                    break;
-
-                // This appears to get triggered after a Teleport/Shared Fate teleport event.
-                case MapType.Centered:
-
-                case MapType.AetherCurrent:
-                default:
-                    Service.Log.Debug($"[OpenMap] Ignoring MapType: {mapInfo->Type}");
-                    break;
+                AgentMap.Instance()->Hide();
             }
 
-            if (System.SystemConfig.AutoZoom)
-            {
-                MapRenderer.MapRenderer.Scale = DrawHelpers.GetMapScaleFactor() * System.SystemConfig.AutoZoomScaleFactor;
-            }
-        }, Service.Log, "Exception during OpenMap");
+            Service.Log.Debug("[OnShow] Vanilla tried to return to current map, aborted.");
+            return false;
+        }
+
+        if (System.SystemConfig.KeepOpen)
+        {
+            Service.Log.Debug("[OnShow] Keeping Open");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void OnOpenMapHook(AgentMap* agent, OpenMapInfo* mapInfo)
+    {
+        openMapHook!.Original(agent, mapInfo);
+
+        try
+        {
+            AfterOpenMap(agent, mapInfo);
+        }
+        catch (Exception exception)
+        {
+            DetourGuard.Report("OpenMap", exception);
+        }
+    }
+
+    private void AfterOpenMap(AgentMap* agent, OpenMapInfo* mapInfo)
+    {
+        switch (mapInfo->Type)
+        {
+            case MapType.QuestLog:
+                ProcessQuestLink(agent, mapInfo);
+                break;
+
+            case MapType.GatheringLog:
+                ProcessGatheringLink(agent);
+                break;
+
+            case MapType.FlagMarker:
+                ProcessFlagLink(agent);
+                break;
+
+            case MapType.Bozja:
+                ProcessForayLink(agent, mapInfo);
+                break;
+
+            case MapType.MobHunt:
+            case MapType.SharedFate:
+            case MapType.Teleport:
+            case MapType.Treasure:
+                ProcessTeleportLink(agent, mapInfo);
+                break;
+
+            // This appears to get triggered after a Teleport/Shared Fate teleport event.
+            case MapType.Centered:
+
+            case MapType.AetherCurrent:
+            default:
+                Service.Log.Debug($"[OpenMap] Ignoring MapType: {mapInfo->Type}");
+                break;
+        }
+
+        if (System.SystemConfig.AutoZoom)
+        {
+            MapRenderer.MapRenderer.Scale = DrawHelpers.GetMapScaleFactor() * System.SystemConfig.AutoZoomScaleFactor;
+        }
+    }
 
     private void ProcessQuestLink(AgentMap* agent, OpenMapInfo* mapInfo)
     {

@@ -8,6 +8,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using KamiLib.Classes;
 using KamiLib.CommandManager;
 using KamiLib.Extensions;
+using Mappy.Classes;
 using Mappy.Extensions;
 using Mappy.Windows;
 
@@ -90,32 +91,58 @@ public unsafe class AddonAreaMapController : IDisposable
         }
     }
 
-    private void OnAreaMapShow(AddonAreaMap* thisPtr, bool silenceOpenSoundEffect, uint unsetShowHideFlags) =>
-        HookSafety.ExecuteSafe(() =>
-        {
+    private void OnAreaMapShow(AddonAreaMap* thisPtr, bool silenceOpenSoundEffect, uint unsetShowHideFlags)
+    {
+        try {
             Service.Log.Debug("[AreaMap] OnAreaMapShow");
 
             System.WindowManager.GetWindow<MapWindow>()?.Open();
-            showAreaMapHook!.Original(thisPtr, silenceOpenSoundEffect, unsetShowHideFlags);
-        }, Service.Log, "Exception during OnAreaMapShow");
+        }
+        catch (Exception exception) {
+            DetourGuard.Report(nameof(OnAreaMapShow), exception);
+        }
 
-    private void OnAreaMapHide(AddonAreaMap* thisPtr, bool unkBool, bool callHideCallback, uint setShowHideFlags) =>
-        HookSafety.ExecuteSafe(() =>
-        {
-            Service.Log.Debug("[AreaMap] OnAreaMapHide");
+        showAreaMapHook!.Original(thisPtr, silenceOpenSoundEffect, unsetShowHideFlags);
+    }
 
-            if (System.SystemConfig.KeepOpen) {
-                Service.Log.Debug("[AreaMap] Keeping Open");
-                return;
-            }
+    private void OnAreaMapHide(AddonAreaMap* thisPtr, bool unkBool, bool callHideCallback, uint setShowHideFlags)
+    {
+        bool callOriginal;
+        try {
+            callOriginal = ShouldPassHideToGame();
+        }
+        catch (Exception exception) {
+            DetourGuard.Report(nameof(OnAreaMapHide), exception);
+            callOriginal = true;
+        }
 
-            hideAreaMapHook!.Original(thisPtr, unkBool, callHideCallback, setShowHideFlags);
+        // 「保持開啟」時刻意不呼叫原函式：原生地圖不關，Mappy 視窗也跟著不關。
+        if (!callOriginal) return;
 
+        hideAreaMapHook!.Original(thisPtr, unkBool, callHideCallback, setShowHideFlags);
+
+        try {
             // If the window actually considered closed by the agent.
             if (AgentMap.Instance()->AddonId is 0) {
                 System.WindowManager.GetWindow<MapWindow>()?.Close();
             }
-        }, Service.Log, "Exception during OnAreaMapHide");
+        }
+        catch (Exception exception) {
+            DetourGuard.Report(nameof(OnAreaMapHide), exception);
+        }
+    }
+
+    private static bool ShouldPassHideToGame()
+    {
+        Service.Log.Debug("[AreaMap] OnAreaMapHide");
+
+        if (System.SystemConfig.KeepOpen) {
+            Service.Log.Debug("[AreaMap] Keeping Open");
+            return false;
+        }
+
+        return true;
+    }
 
     private void OnAreaMapDraw(AddonEvent type, AddonArgs args)
     {
