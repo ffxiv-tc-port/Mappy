@@ -1,8 +1,8 @@
 {
   "Author": "MidoriKami",
   "Name": "Mappy",
-  "Punchline": "功能更完整的遊戲地圖。",
-  "Description": "以 ImGui 地圖取代遊戲內建地圖，並提供多項額外功能。",
+  "Punchline": "取代遊戲內建地圖，可自訂圖示並加上搜尋與清單。",
+  "Description": "以獨立視窗取代遊戲內建的地圖，按地圖鍵開啟的就是它。輸入 /mappy 開啟設定。\n\n- 地圖視窗可縮放、鎖定、淡出，每種圖示可個別設定是否顯示、大小與顏色\n- 搜尋地圖、乙太之光與興趣點；任務、F.A.T.E.、旗標紀錄各有清單視窗，點一下就置中地圖\n- 好友與公會成員分色顯示；新月島與博茲雅的緊急遭遇戰顯示階段、剩餘時間與參加人數\n- 右鍵「移動到這裡」、點都市傳送網標記傳送（需搭配 Lifestream）\n- 在地圖上畫出 vnavmesh 正在走的路線（需搭配 vnavmesh）\n- 其他插件可以把標記與路線畫到這張地圖上",
   "Tags": [    "map",    "mapping",    "overlay",    "utility" ],
   "InternalName": "Mappy",
   "RepoUrl": "https://github.com/ffxiv-tc-port/Mappy",
